@@ -1,0 +1,468 @@
+{
+  "appShell": {
+    "tabs": {
+      "dashboard": "Dashboard",
+      "usage": "App Usage",
+      "calendar": "Calendar",
+      "network": "Network",
+      "health": "Health",
+      "hardware": "Hardware",
+      "settings": "Settings",
+      "about": "About"
+    },
+    "titleBar": {
+      "minimize": "Minimize",
+      "maximize": "Maximize",
+      "restore": "Restore",
+      "close": "Close"
+    },
+    "status": {
+      "monitoring": "Monitoring",
+      "paused": "Paused",
+      "trayRunning": "Tray Running",
+      "todayActive": "Active today",
+      "todayIdle": "Idle today"
+    },
+    "sidebar": {
+      "collapse": "Collapse sidebar",
+      "expand": "Expand sidebar"
+    },
+    "bridgeWarning": {
+      "closeAria": "Dismiss"
+    }
+  },
+  "placeholder": {
+    "developing": "In development",
+    "dashboardTitle": "Dashboard",
+    "dashboardDescription": "App usage stats, distribution, hourly charts and calendar heatmap will be shown here.",
+    "calendarTitle": "Calendar",
+    "calendarDescription": "Monthly usage records with year navigation and Chinese weekdays.",
+    "networkTitle": "Network Monitor",
+    "networkDescription": "Real-time speed curves and historical statistics will be shown here.",
+    "settingsTitle": "Settings",
+    "settingsDescription": "Tracking switches, auto-refresh, fonts, log path and uninstall entry.",
+    "aboutTitle": "About"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save"
+  },
+  "dashboard": {
+    "range": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "week": "This week",
+      "month": "This month"
+    },
+    "edit": "Edit",
+    "templateTitle": "Template",
+    "templates": {
+      "balanced": "Balanced",
+      "compact": "Compact",
+      "showcase": "Showcase",
+      "classic": "Classic"
+    },
+    "aggBadge": "Aggregate",
+    "aggregateHint": "Aggregate cards combine several cards into one: enabling one automatically hides its member cards (for example, Hardware aggregate and Temperature aggregate are mutually exclusive).",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "cardSize": {
+      "sm": "Small (1/3)",
+      "md": "Medium (2/3)",
+      "lg": "Large (full row)"
+    },
+    "editTitle": "Edit dashboard",
+    "editDescription": "Drag tiles to reorder, drag the corner handle to resize, click the eye to hide a card.",
+    "hideCard": "Hide card",
+    "resizeHint": "Drag a tile to reorder · drag the bottom-right handle to resize (small / medium / large)",
+    "hiddenCards": "Hidden cards (click to restore)",
+    "emptyGrid": "All cards are hidden — restore them below",
+    "resetLayout": "Reset layout",
+    "cards": {
+      "stats": "Stats",
+      "appUsage": "App usage",
+      "netApps": "Network traffic",
+      "hourly": "Hourly",
+      "calendar": "Calendar",
+      "networkStats": "Network stats",
+      "networkLive": "Live rate curve",
+      "attrUsage": "Traffic by app",
+      "hardwareGauges": "Hardware gauges",
+      "diskTemp": "Disk temperature",
+      "health": "Health reminder",
+      "durationAgg": "Duration aggregate",
+      "netAgg": "Network aggregate",
+      "hwAgg": "Hardware aggregate",
+      "tempAgg": "Temperature aggregate"
+    },
+    "cardsDesc": {
+      "stats": "Active / idle / apps",
+      "appUsage": "Bar chart and details by app",
+      "netApps": "Live apps with TCP connections",
+      "hourly": "Hourly usage curve",
+      "calendar": "Month heatmap with day details",
+      "networkStats": "Live rates and session totals",
+      "networkLive": "Download / upload live curve",
+      "attrUsage": "Windows official per-app traffic (hourly)",
+      "hardwareGauges": "CPU / GPU / memory gauges",
+      "diskTemp": "Disk temperature list",
+      "health": "Streak / next reminder",
+      "durationAgg": "Stats + hourly curve",
+      "netAgg": "Network stats + live curve",
+      "hwAgg": "Hardware gauges + disk temperature",
+      "tempAgg": "CPU / GPU / disk temperature"
+    },
+    "stats": {
+      "active": "Active time",
+      "idle": "Idle time",
+      "apps": "Apps used"
+    },
+    "appUsage": {
+      "title": "Usage by app"
+    },
+    "netApps": {
+      "title": "Network traffic by app"
+    },
+    "hourly": {
+      "title": "Hourly usage",
+      "activeLabel": "Active time"
+    },
+    "calendar": {
+      "active": "Active time",
+      "sessions": "Sessions"
+    },
+    "empty": "No usage data yet — it will be recorded automatically as you use apps.",
+    "loadFailed": "Failed to load data",
+    "retry": "Retry"
+  },
+  "usage": {
+    "title": "App usage",
+    "total": "Total active",
+    "loading": "Loading…",
+    "activeLabel": "Active time",
+    "chart": {
+      "bar": "Usage by app (top 10)",
+      "pie": "Share by app",
+      "hourly": "Hourly usage"
+    },
+    "noDetail": "No more details for this app."
+  },
+  "calendar": {
+    "prevYear": "Previous year",
+    "nextYear": "Next year",
+    "prevMonth": "Previous month",
+    "nextMonth": "Next month",
+    "active": "Active time",
+    "idle": "Idle time",
+    "sessions": "Sessions",
+    "sessionList": "Sessions",
+    "today": "Today",
+    "monthView": "Month",
+    "yearView": "Year"
+  },
+  "network": {
+    "download": "Download",
+    "upload": "Upload",
+    "sessionDownload": "Session download",
+    "sessionUpload": "Session upload",
+    "liveTitle": "Live speed",
+    "historyTitle": "History",
+    "avg": "Average",
+    "max": "Peak",
+    "noHistory": "No history yet",
+    "statsTitle": "Traffic stats",
+    "totalDownload": "Total download",
+    "totalUpload": "Total upload",
+    "peakDownload": "Peak download",
+    "peakUpload": "Peak upload",
+    "activeDays": "{{count}} active day(s)",
+    "dailyAvg": "Daily avg {{value}}",
+    "dailyTitle": "Daily traffic",
+    "hourlyTitle": "Hourly traffic",
+    "rangeDays": "Last {{days}} days",
+    "range": {
+      "24h": "24h",
+      "today": "Today",
+      "session": "Since launch",
+      "7d": "Last 7 days",
+      "30d": "Last 30 days"
+    },
+    "appTraffic": "Traffic by app",
+    "appFlow": "Traffic",
+    "appTrafficEmpty": "No app network activity yet — tracks apps with TCP connections",
+    "appTotal": "Total",
+    "appActive": "Active",
+    "bytesHint": "Byte-level traffic requires administrator rights (Windows limitation); showing TCP connection counts instead.",
+    "attrTitle": "Traffic by app (Windows official data)",
+    "attrToday": "Today",
+    "attrRefresh": "Refresh",
+    "attrLoading": "Reading Windows usage records…",
+    "attrEmpty": "No app traffic records in this period yet (Windows official accounting, usually up to ~1 hour behind)",
+    "attrUnavailable": "Per-app traffic data is unavailable right now (no network connection or unsupported system).",
+    "attrUnknown": "Unattributed",
+    "attrHint": "Source: Windows data usage (no admin) · {{since}} ~ {{until}} · not real-time, ~hourly updates"
+  },
+  "hardware": {
+    "title": "Hardware monitor",
+    "description": "CPU, memory and disk monitoring will be available in a future version.",
+    "comingSoon": "Coming soon",
+    "cpu": "CPU usage",
+    "memory": "Memory usage",
+    "disks": "Disks",
+    "cpuTemp": "CPU temperature",
+    "gpuTemp": "GPU temperature",
+    "diskTemp": "Disk temperature",
+    "cpuPct": "CPU usage (%)",
+    "memPct": "Memory usage (%)",
+    "cpuTempLine": "CPU temperature (°C)",
+    "gpuTempLine": "GPU temperature (°C)",
+    "liveTitle": "Live curve",
+    "liveHint": "Live refresh interval: {{seconds}}s (adjustable in Settings → General → Live data refresh interval)",
+    "usageLabel": "Usage {{pct}}%",
+    "avgTempHint": "Average = mean of all core temperatures ({{cores}} cores)",
+    "packageTemp": "Package temperature",
+    "core": "Core",
+    "tempUnavailable": "CPU temperature is currently unavailable",
+    "restartElevated": "Restart as administrator",
+    "installDriver": "Install kernel driver",
+    "gpuNotFound": "No NVIDIA GPU detected (GPU temperature only supports NVIDIA)",
+    "diskTempHint": "Disk temperature comes from the Windows storage interface: most NVMe SSDs only report values with administrator rights; show — when unavailable.",
+    "diskHealth": "Disk health",
+    "diskHealthRefresh": "Refresh",
+    "diskHealthHint": "Health status is usually readable without admin; reliability data (temperature, wear, power-on hours, read/write errors) is more complete with administrator rights.",
+    "wear": "Wear",
+    "powerOnHours": "Power-on hours",
+    "readErrors": "Read errors",
+    "writeErrors": "Write errors",
+    "health": {
+      "Healthy": "Healthy",
+      "Warning": "Warning",
+      "Unhealthy": "Unhealthy",
+      "Unknown": "Unknown"
+    },
+    "driverConfirmTitle": "Install kernel driver?",
+    "driverConfirmDescription": "The kernel driver writes to the system core and requires administrator rights; security software (e.g. 360) may block it. If THRM already installed it, Digitrace will reuse it without reinstalling.",
+    "cancel": "Cancel",
+    "available": "Available",
+    "loading": "Loading…",
+    "loadFailed": "Failed to load hardware info"
+  },
+  "settings": {
+    "tabs": {
+      "general": "General",
+                  "appearance": "Appearance",
+                  "startup": "Startup & Tray",
+                  "hardware": "Hardware",
+                  "update": "Updates",
+      "logs": "Logs & Data"
+    },
+    "titlebar": {
+      "title": "Title bar items",
+      "monitoring": "Monitoring status",
+      "tray": "Tray running",
+      "active": "Active time today",
+      "idle": "Idle time today"
+    },
+    "section": {
+      "monitor": "Monitoring",
+      "refresh": "Auto Refresh",
+      "appearance": "Appearance",
+      "startup": "Startup & Tray",
+      "logs": "Logs",
+      "data": "Data"
+    },
+    "monitor": {
+      "autoTrack": "Track on startup",
+      "autoTrackDescription": "Start tracking app usage automatically on launch.",
+      "pollInterval": "Sampling interval",
+      "pollIntervalDescription": "How often the background monitor samples.",
+      "idleThreshold": "Idle threshold",
+      "idleThresholdDescription": "No activity for this long counts as idle."
+    },
+    "refresh": {
+      "interval": "Data refresh interval",
+      "intervalDescription": "How often dashboard and title bar live data refresh.",
+      "liveInterval": "Live data refresh interval",
+      "liveIntervalDescription": "How often hardware and network live curves refresh (1s is smoother but uses a bit more resources)."
+    },
+    "timezone": {
+      "title": "Date timezone",
+      "description": "Day boundaries for Today / This week / This month and history windows.",
+      "system": "Follow system",
+      "utc8": "UTC+8 (GMT+8)"
+    },
+    "theme": {
+      "title": "Theme",
+      "description": "Switch between light, dark, or follow the system.",
+      "system": "System",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "blur": {
+      "title": "Window Material",
+      "description": "Choose the window backdrop. Applies after restart.",
+      "auto": "Auto",
+      "mica": "Mica",
+      "acrylic": "Acrylic",
+      "tabbed": "Mica Alt",
+      "off": "Off",
+      "manualRestartNotice": "Window material saved. It takes effect after restarting the app",
+      "restartTitle": "Window material changed",
+      "restartDescription": "The new material takes effect after restarting the app. Restart now?",
+      "restartNow": "Restart now",
+      "restartLater": "Later"
+    },
+    "font": {
+      "title": "Interface font",
+      "description": "Choose the UI font. Applies immediately.",
+      "system": "System default",
+      "harmonyos": "HarmonyOS Sans",
+      "noto": "Noto Sans SC",
+      "misans": "MiSans"
+    },
+    "zoom": {
+      "title": "UI zoom",
+      "description": "Scale the whole UI (fonts, cards, charts together); the percentage pops up at the top while dragging."
+    },
+    "uiTuner": {
+      "title": "UI tuner",
+      "description": "Show debug sliders at the bottom-right to adjust card radius, spacing, padding and title size live."
+    },
+    "devTools": {
+      "title": "Developer tools",
+      "description": "Open the browser DevTools to inspect and tweak UI styles live.",
+      "open": "Open"
+    },
+    "language": {
+      "title": "Language",
+      "description": "Switch interface language instantly; your choice is remembered."
+    },
+    "startup": {
+      "autoStart": "Launch at login",
+      "autoStartDescription": "Start in the background (tray) automatically after logging into Windows.",
+      "enabled": "Auto-start enabled",
+      "disabled": "Auto-start disabled",
+      "failed": "Failed to change auto-start",
+      "elevated": "Run auto-start as administrator",
+      "elevatedDescription": "Use a Windows scheduled task with highest privileges so hardware data (e.g. CPU temperature) is available right after login; one UAC confirmation is required when enabling.",
+      "elevatedEnabled": "Elevated auto-start enabled (takes effect next login)",
+      "elevatedDisabled": "Elevated auto-start disabled",
+      "elevatedFailed": "Failed to enable elevated auto-start (UAC may have been cancelled)",
+      "minimizeToTray": "Close to tray",
+      "minimizeToTrayDescription": "Hide to tray when closing; the process keeps running.",
+      "launchShowWindow": "Show main window on launch",
+      "launchShowWindowDescription": "Show the main window on launch; turn off to stay in the tray. Auto-start at logon always stays silently in the tray; restart, update or reinstall always opens the main window."
+    },
+    "tray": {
+      "title": "Tray display",
+      "cpu": "CPU usage",
+      "memory": "Memory usage",
+                                  "network": "Live speed",
+                                  "active": "Active today",
+                                  "temp": "Temperature",
+                                  "hint": "Live data shows in the hover tooltip (version on the first line); the right-click menu keeps only actions, with the version at the end."
+                              },
+                     "hardware": {
+                                  "driverTitle": "Kernel driver (optional)",
+                                  "driverStatus": "PawnIO driver status",
+                                  "statusRunning": "Installed v{{version}} · Running (shared with other apps)",
+                                  "statusStopped": "Installed v{{version}} · Not running",
+                                  "statusNotInstalled": "Not installed",
+                                  "install": "Install kernel driver",
+                                  "uninstall": "Uninstall kernel driver",
+                                  "driverRisk": "Risk & trade-off: CPU temperature requires reading CPU registers (MSR), which Windows only allows with administrator rights plus a kernel driver. Please confirm you understand: the driver writes to the system core, requires admin rights, and may be blocked by security software (e.g. 360). Not installing only means no CPU temperature; everything else keeps working. If THRM or other apps already installed it, Digitrace reuses it without reinstalling.",
+                                  "tempTitle": "Temperature notes",
+                                  "tempDescription": "GPU: no admin needed (NVML). Disk: Windows storage interface, best effort, usually needs admin. CPU: needs the PawnIO kernel driver and running Digitrace as administrator; after one admin restart it can read, and you can run normally afterwards.",
+                                  "installTitle": "Install the kernel driver?",
+                                  "installDescription": "This launches the official PawnIO installer (needs administrator rights). The system may show security prompts or 360 may block it; please allow it. After installation, return here and the status will change to Running.",
+                                  "uninstallTitle": "Uninstall the kernel driver?",
+                                  "uninstallDescription": "CPU temperature will be unavailable after uninstall. Note: other apps such as THRM may be using this driver; please confirm before uninstalling.",
+                                  "cancel": "Cancel"
+                              },
+    "logs": {
+      "path": "Log file path",
+      "dataLocation": "Data storage location",
+      "dataLocationDescription": "Usage, network and config data are stored here (local only, never uploaded)"
+    },
+    "data": {
+      "clearTitle": "Clear all data",
+      "clearDescription": "Delete all locally saved usage and monitoring records.",
+      "clear": "Clear data",
+      "confirmTitle": "Clear all data?",
+      "confirmDescription": "This cannot be undone. All usage, calendar and network records will be deleted.",
+      "cancel": "Cancel",
+      "confirmClear": "Clear",
+      "cleared": "Data cleared",
+      "clearFailed": "Clear failed. Try again later",
+      "exportTitle": "Export plaintext backup",
+      "exportDescription": "Decrypts diary entries and window titles into a JSON file (plaintext — keep it safe; useful before reinstalling Windows).",
+      "export": "Export plaintext",
+      "exported": "Plaintext backup exported",
+      "exportFailed": "Export failed",
+      "openFolder": "Open folder"
+    },
+    "update": {
+      "autoCheck": "Check for updates automatically",
+      "autoCheckDescription": "Check for new versions after launch (at most once per day).",
+      "manifestUrl": "Update manifest URL",
+      "manifestUrlDescription": "JSON format: { version, url, sha256, notes }. Must be HTTPS; downloads are verified against the SHA-256 hash.",
+      "hint": "Updates are hash-verified and refused if verification fails; the old process exits before being replaced.",
+      "statusNoUrl": "No update URL configured — no network checks are made.",
+      "statusAutoOn": "Automatic checks enabled (at most one network request per day).",
+      "statusAutoOff": "Automatic checks off — the app only goes online when you click \"Check for updates\"."
+    }
+  },
+  "about": {
+    "ack": {
+      "title": "Acknowledgements",
+      "timetrace": "Data collection and storage foundation (MIT License)",
+      "thrm": "UI framework and interaction design reference (open source)"
+    },
+    "privacy": "Privacy",
+    "privacyDescription": "All data stays on this device at %APPDATA%\\TimeTrace. Nothing is uploaded.",
+    "credits": "Digitrace — an independent project we built together",
+    "update": {
+      "title": "Updates",
+      "check": "Check for updates",
+      "checking": "Checking…",
+      "checkFailed": "Check failed",
+      "found": "New version v{{version}} available",
+      "download": "Download & update",
+      "downloading": "Downloading…",
+      "installing": "Download complete, installing…",
+      "latest": "You're up to date",
+      "failed": "Update failed"
+    }
+  },
+  "takeover": {
+    "title": "New version v{{version}} detected",
+    "description": "Quit the current version and launch the new one?",
+    "elevatedHint": "The new version will start as administrator. Click \"Switch now\" and confirm the system security prompt.",
+    "switchNow": "Switch now",
+    "later": "Later",
+    "showWindow": "Open the main window after switching"
+  },
+  "health": {
+    "streak": "Current continuous use",
+    "nextReminder": "Next reminder in",
+    "remindersToday": "Reminders today",
+    "idle": "Current status",
+    "using": "Active",
+    "away": "Away (on break)",
+    "enable": "Enable health reminders",
+    "enableDescription": "Get a Windows notification to stand up and move after using the PC continuously for a set time.",
+    "reminderInterval": "Reminder interval",
+    "breakThreshold": "Away time that counts as a break (resets the timer)",
+    "minutes": "{{minutes}} min",
+    "test": "Test notification",
+    "testing": "Sending…",
+    "testOk": "Test notification sent",
+    "testFailed": "Failed to send",
+    "lastReminder": "Last reminder {{time}}",
+    "hint": "Health reminders run entirely on this PC: continuous usage is detected from keyboard/mouse activity, and no data is uploaded."
+  },
+  "fatalError": {
+    "title": "Startup Failed",
+    "retry": "Retry"
+  }
+}

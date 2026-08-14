@@ -1,0 +1,1503 @@
+//! SQLite implementation of `DataStore`.
+//!
+//! Uses `rusqlite` with bundled SQLite. All errors are logged via `tracing::warn!`
+//! and operations return sensible defaults — the trait contract says infallible.
+
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+use chrono::{DateTime, NaiveDate, Timelike, Utc};
+use rusqlite::{Connection, params};
+use tracing::{debug, warn};
+
+use crate::contracts::{
+    AppMetaRecord, AppUsageSplit, AppUsageSummary, DataStore, SessionRecord, StartupEntryRecord,
+};
+use crate::security;
+use crate::storage::schema;
+
+/// Apply guarded one-time migrations. Returns Err only on real failures.
+fn run_migrations(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
+    // Migration 1: diary_entries.date was UNIQUE (one entry/day) in old DBs.
+    // Rebuild the table without the constraint so multiple entries per day
+    // are allowed, preserving all existing rows.
+    let has_unique: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_index_list('diary_entries') WHERE \"unique\" = 1 AND origin = 'u'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_unique > 0 {
+        for stmt in schema::MIGRATIONS {
+            conn.execute_batch(stmt)?;
+        }
+        tracing::info!("diary_entries migrated: multi-entry per day");
+    }
+
+    // Migration 2: diary_images.entry_id — add column if missing + backfill.
+    let has_entry_col: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('diary_images') WHERE name = 'entry_id'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_entry_col == 0 {
+        for stmt in schema::MIGRATIONS_V2 {
+            conn.execute_batch(stmt)?;
+        }
+        tracing::info!("diary_images migrated: entry_id linked");
+    }
+    // Always ensure the entry index exists (fresh DBs + migrated).
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_diary_images_entry ON diary_images(entry_id)",
+    )?;
+
+    // Migration 3: diary_entries.status — add column if missing.
+    let has_status: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('diary_entries') WHERE name = 'status'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_status == 0 {
+        for stmt in schema::MIGRATIONS_V3 {
+            conn.execute_batch(stmt)?;
+        }
+        tracing::info!("diary_entries migrated: status column");
+    }
+    Ok(())
+}
+
+/// Split a session [start, end) across hour-of-day buckets (local time).
+/// An hour never exceeds 60 minutes even for long sessions.
+fn add_session_to_hours(hours: &mut [i64; 24], start: DateTime<Utc>, end: DateTime<Utc>) {
+    let start_local = start.with_timezone(&chrono::Local);
+    let end_local = end.with_timezone(&chrono::Local);
+    let mut cur = start_local;
+    while cur < end_local {
+        let h = cur.hour() as usize;
+        if h >= 24 {
+            break;
+        }
+        let next_hour = cur
+            .with_minute(0)
+            .and_then(|c| c.with_second(0))
+            .map(|c| c + chrono::Duration::hours(1))
+            .unwrap_or(end_local);
+        let seg_end = end_local.min(next_hour);
+        let seg = (seg_end - cur).num_seconds().max(0);
+        hours[h] += seg;
+        cur = next_hour;
+    }
+}
+
+pub struct SqliteStore {
+    conn: Mutex<Connection>,
+}
+
+impl SqliteStore {
+    /// Open (or create) the SQLite database at the given path.
+    pub fn open(path: PathBuf) -> Result<Self, rusqlite::Error> {
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+
+        let conn = Connection::open(&path)?;
+
+        // Apply pragmas
+        for pragma in schema::PRAGMAS {
+            conn.execute_batch(pragma)?;
+        }
+
+        // Run schema DDL
+        for ddl in schema::CREATE_TABLES {
+            conn.execute_batch(ddl)?;
+        }
+
+        // Run one-time migrations (guarded).
+        run_migrations(&conn)?;
+
+        // 清理异常遗留的未关闭会话（进程被强杀/崩溃产生），避免统计虚增。
+        let _ = conn.execute("DELETE FROM usage_sessions WHERE duration_secs IS NULL", []);
+
+        // 敏感字段（窗口标题 / 日记内容）DPAPI 加密迁移（幂等，只处理旧明文）。
+        if let Err(e) = encrypt_legacy_sensitive_fields(&conn) {
+            warn!("敏感字段加密迁移失败：{e}");
+        }
+
+        debug!("SQLite opened at {}", path.display());
+
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Connection> {
+        // Recover from a poisoned mutex instead of aborting: a panic inside
+        // a query must not take down the whole app (release profile uses
+        // panic = "abort"). The connection is still usable.
+        self.conn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+// ── 敏感字段加解密辅助（DPAPI，见 security.rs）──
+
+fn enc_str(s: &str) -> String {
+    security::encrypt(s).unwrap_or_else(|e| {
+        warn!("敏感字段加密失败，回退明文存储：{e}");
+        s.to_string()
+    })
+}
+
+fn enc_opt(s: Option<&str>) -> Option<String> {
+    s.map(enc_str)
+}
+
+fn dec_str(s: String) -> String {
+    security::decrypt_or_placeholder(s)
+}
+
+/// 把数据库里残留的旧明文敏感字段一次性加密。幂等：只处理无 `dpapi:` 前缀的行。
+fn encrypt_legacy_sensitive_fields(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let mut updated: u64 = 0;
+    for (table, col) in [
+        ("usage_sessions", "window_title"),
+        ("page_visits", "window_title"),
+        ("diary_entries", "content"),
+    ] {
+        let select_sql = format!(
+            "SELECT id, {col} FROM {table} WHERE {col} IS NOT NULL AND {col} != '' AND {col} NOT LIKE 'dpapi:%'"
+        );
+        let mut stmt = conn.prepare(&select_sql)?;
+        let rows: Vec<(i64, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(stmt);
+        for (id, plain) in rows {
+            if let Ok(enc) = security::encrypt(&plain) {
+                let update_sql = format!("UPDATE {table} SET {col} = ?1 WHERE id = ?2");
+                if conn.execute(&update_sql, params![enc, id]).is_ok() {
+                    updated += 1;
+                }
+            }
+        }
+    }
+    if updated > 0 {
+        tracing::info!("敏感字段加密迁移完成：共 {updated} 条");
+    }
+    Ok(())
+}
+
+impl DataStore for SqliteStore {
+    // ── Session CRUD ──
+
+    fn insert_session(&self, session: &SessionRecord) -> i64 {
+        let conn = self.lock();
+        match conn.execute(
+            "INSERT INTO usage_sessions (app_path, app_name, window_title, started_at, ended_at, duration_secs, is_idle, date)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                session.app_path,
+                session.app_name,
+                enc_opt(session.window_title.as_deref()),
+                session.started_at.to_rfc3339(),
+                session.ended_at.map(|t| t.to_rfc3339()),
+                session.duration_secs,
+                session.is_idle as i32,
+                session.date.to_string(),
+            ],
+        ) {
+            Ok(_) => conn.last_insert_rowid(),
+            Err(e) => {
+                warn!("Failed to insert session: {e}");
+                -1
+            }
+        }
+    }
+
+    fn close_session(&self, id: i64, end_time: DateTime<Utc>) {
+        let conn = self.lock();
+        if let Ok(started_at_str) = conn.query_row(
+            "SELECT started_at FROM usage_sessions WHERE id = ?1",
+            params![id],
+            |row| row.get::<_, String>(0),
+        ) && let Ok(started_at) = DateTime::parse_from_rfc3339(&started_at_str)
+        {
+            let duration = (end_time - started_at.with_timezone(&Utc))
+                .num_seconds()
+                .max(0);
+            if let Err(e) = conn.execute(
+                "UPDATE usage_sessions SET ended_at = ?1, duration_secs = ?2 WHERE id = ?3",
+                params![end_time.to_rfc3339(), duration, id],
+            ) {
+                warn!("Failed to close session {id}: {e}");
+            }
+        }
+    }
+
+    fn cleanup_dangling_sessions(&self) {
+        let conn = self.lock();
+        if let Err(e) = conn.execute("DELETE FROM usage_sessions WHERE duration_secs IS NULL", []) {
+            warn!("Failed to clean dangling sessions: {e}");
+        }
+    }
+
+    fn get_active_session(&self) -> Option<SessionRecord> {
+        let conn = self.lock();
+        conn.query_row(
+            "SELECT id, app_path, app_name, window_title, started_at, ended_at, duration_secs, is_idle, date
+             FROM usage_sessions WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1",
+            [],
+            Self::row_to_session,
+        )
+        .ok()
+    }
+
+    // ── Queries ──
+
+    fn get_sessions_by_date(&self, date: NaiveDate) -> Vec<SessionRecord> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT id, app_path, app_name, window_title, started_at, ended_at, duration_secs, is_idle, date
+             FROM usage_sessions WHERE date = ?1 ORDER BY started_at",
+        )
+            && let Ok(rows) =
+                stmt.query_map(params![date.to_string()], Self::row_to_session)
+            {
+                out.extend(rows.filter_map(|r| r.ok()));
+            }
+        out
+    }
+
+    fn get_sessions_by_range(&self, start: NaiveDate, end: NaiveDate) -> Vec<SessionRecord> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT id, app_path, app_name, window_title, started_at, ended_at, duration_secs, is_idle, date
+             FROM usage_sessions WHERE date >= ?1 AND date <= ?2 ORDER BY started_at",
+        )
+            && let Ok(rows) = stmt.query_map(params![start.to_string(), end.to_string()], |row| {
+                Self::row_to_session(row)
+            }) {
+                out.extend(rows.filter_map(|r| r.ok()));
+            }
+        out
+    }
+
+    fn get_daily_summary(&self, date: NaiveDate) -> Vec<AppUsageSummary> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT app_name, COALESCE(SUM(duration_secs), 0) as total, COUNT(*) as sessions
+             FROM usage_sessions WHERE date = ?1 AND is_idle = 0 AND duration_secs IS NOT NULL
+             GROUP BY app_name ORDER BY total DESC",
+        ) && let Ok(rows) = stmt.query_map(params![date.to_string()], |row| {
+            Ok(AppUsageSummary {
+                app_name: row.get(0)?,
+                total_seconds: row.get(1)?,
+                session_count: row.get::<_, i64>(2)?,
+                rank: 0,
+            })
+        }) {
+            out.extend(rows.filter_map(|r| r.ok()).enumerate().map(|(i, mut s)| {
+                s.rank = i + 1;
+                s
+            }));
+        }
+        out
+    }
+
+    fn get_top_apps(&self, start: NaiveDate, end: NaiveDate, limit: usize) -> Vec<AppUsageSummary> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT app_name, COALESCE(SUM(duration_secs), 0) as total, COUNT(*) as sessions
+             FROM usage_sessions
+             WHERE date >= ?1 AND date <= ?2 AND is_idle = 0 AND duration_secs > 0
+             GROUP BY app_name
+             ORDER BY total DESC
+             LIMIT ?3",
+        ) && let Ok(rows) = stmt.query_map(
+            params![start.to_string(), end.to_string(), limit as i64],
+            |row| {
+                Ok(AppUsageSummary {
+                    app_name: row.get(0)?,
+                    total_seconds: row.get(1)?,
+                    session_count: row.get(2)?,
+                    rank: 0,
+                })
+            },
+        ) {
+            out.extend(rows.filter_map(|r| r.ok()).enumerate().map(|(i, mut s)| {
+                s.rank = i + 1;
+                s
+            }));
+        }
+        out
+    }
+
+    fn get_usage_split(&self, start: NaiveDate, end: NaiveDate) -> Vec<AppUsageSplit> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT app_name, MAX(app_path),
+                    COALESCE(SUM(CASE WHEN is_idle = 0 THEN
+                        COALESCE(duration_secs, strftime('%s','now') - strftime('%s', started_at))
+                    ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN is_idle = 1 THEN duration_secs ELSE 0 END), 0)
+             FROM usage_sessions
+             WHERE date >= ?1 AND date <= ?2
+               AND (duration_secs > 0 OR duration_secs IS NULL)
+               AND app_name != '__IDLE__'
+             GROUP BY app_name ORDER BY 3 DESC",
+        ) && let Ok(rows) = stmt.query_map(params![start.to_string(), end.to_string()], |row| {
+            Ok(AppUsageSplit {
+                app_name: row.get(0)?,
+                exe_path: row.get(1)?,
+                active_seconds: row.get(2)?,
+                idle_seconds: row.get(3)?,
+            })
+        }) {
+            out.extend(rows.filter_map(|r| r.ok()));
+        }
+        out
+    }
+
+    fn get_window_titles(&self, app_name: &str, date: NaiveDate) -> Vec<(String, i64)> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT COALESCE(window_title, ''), COALESCE(duration_secs, 0)
+             FROM page_visits
+             WHERE app_name = ?1 AND date = ?2 AND duration_secs > 0
+             ",
+        ) && let Ok(rows) = stmt.query_map(params![app_name, date.to_string()], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        }) {
+            // DPAPI 密文不具确定性，不能靠 SQL 的 GROUP BY 聚合；
+            // 先解密再在内存里按标题汇总。
+            let mut agg: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+            for row in rows.flatten() {
+                *agg.entry(dec_str(row.0)).or_insert(0) += row.1;
+            }
+            let mut items: Vec<(String, i64)> = agg.into_iter().collect();
+            items.sort_by_key(|x| std::cmp::Reverse(x.1));
+            out = items;
+        }
+        out
+    }
+
+    fn start_page_visit(
+        &self,
+        session_id: i64,
+        app_name: &str,
+        title: Option<&str>,
+        date: NaiveDate,
+    ) -> i64 {
+        let conn = self.lock();
+        let now = Utc::now().to_rfc3339();
+        match conn.execute(
+            "INSERT INTO page_visits (session_id, app_name, window_title, started_at, ended_at, duration_secs, date)
+             VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5)",
+            params![session_id, app_name, enc_opt(title), now, date.to_string()],
+        ) {
+            Ok(_) => conn.last_insert_rowid(),
+            Err(e) => { warn!("page visit insert failed: {e}"); -1 }
+        }
+    }
+
+    fn close_page_visit(&self, visit_id: i64, end_time: DateTime<Utc>) {
+        if visit_id < 0 {
+            return;
+        }
+        let conn = self.lock();
+        if let Ok(started_str) = conn.query_row(
+            "SELECT started_at FROM page_visits WHERE id = ?1",
+            params![visit_id],
+            |row| row.get::<_, String>(0),
+        ) && let Ok(start) = DateTime::parse_from_rfc3339(&started_str)
+        {
+            let dur = (end_time - start.with_timezone(&Utc)).num_seconds();
+            if dur > 0 {
+                let _ = conn.execute(
+                    "UPDATE page_visits SET ended_at = ?1, duration_secs = ?2 WHERE id = ?3",
+                    params![end_time.to_rfc3339(), dur, visit_id],
+                );
+            }
+        }
+    }
+
+    // ── Startup CRUD ──
+
+    fn upsert_startup_entries(&self, entries: &[StartupEntryRecord]) {
+        let conn = self.lock();
+        for entry in entries {
+            let _ = conn.execute(
+                "INSERT INTO startup_entries (name, command, source, enabled, backup_value, backup_path, first_seen, last_checked)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(id) DO UPDATE SET
+                    command = excluded.command,
+                    last_checked = excluded.last_checked",
+                params![
+                    entry.name,
+                    entry.command,
+                    entry.source,
+                    entry.enabled as i32,
+                    entry.backup_value,
+                    entry.backup_path,
+                    entry.first_seen.to_rfc3339(),
+                    entry.last_checked.to_rfc3339(),
+                ],
+            );
+        }
+    }
+
+    fn get_all_startup_entries(&self) -> Vec<StartupEntryRecord> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT id, name, command, source, enabled, backup_value, backup_path, first_seen, last_checked
+             FROM startup_entries ORDER BY source, name",
+        )
+            && let Ok(rows) = stmt.query_map([], |row| {
+                Ok(StartupEntryRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    command: row.get(2)?,
+                    source: row.get(3)?,
+                    enabled: row.get::<_, i32>(4)? != 0,
+                    backup_value: row.get(5)?,
+                    backup_path: row.get(6)?,
+                    first_seen: parse_dt(row.get::<_, String>(7)?),
+                    last_checked: parse_dt(row.get::<_, String>(8)?),
+                })
+            }) {
+                out.extend(rows.filter_map(|r| r.ok()));
+            }
+        out
+    }
+
+    fn set_startup_enabled(
+        &self,
+        id: i64,
+        enabled: bool,
+        backup: Option<&str>,
+        backup_path: Option<&str>,
+    ) {
+        let conn = self.lock();
+        let _ = conn.execute(
+            "UPDATE startup_entries SET enabled = ?1, backup_value = ?2, backup_path = ?3 WHERE id = ?4",
+            params![enabled as i32, backup, backup_path, id],
+        );
+    }
+
+    // ── App Metadata ──
+
+    fn get_app_meta(&self, exe_path: &str) -> Option<AppMetaRecord> {
+        let conn = self.lock();
+        conn.query_row(
+            "SELECT app_path, display_name, category, is_productive FROM app_metadata WHERE app_path = ?1",
+            params![exe_path],
+            |row| {
+                Ok(AppMetaRecord {
+                    app_path: row.get(0)?,
+                    display_name: row.get(1)?,
+                    category: row.get(2)?,
+                    is_productive: row.get::<_, Option<i32>>(3)?.map(|v| v != 0),
+                })
+            },
+        )
+        .ok()
+    }
+
+    fn set_app_meta(&self, meta: &AppMetaRecord) {
+        let conn = self.lock();
+        let _ = conn.execute(
+            "INSERT OR REPLACE INTO app_metadata (app_path, display_name, category, is_productive)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                meta.app_path,
+                meta.display_name,
+                meta.category,
+                meta.is_productive.map(|v| v as i32),
+            ],
+        );
+    }
+
+    // ── Recording Stats ──
+
+    fn recording_started_at(&self) -> Option<DateTime<Utc>> {
+        let conn = self.lock();
+        conn.query_row(
+            "SELECT started_at FROM usage_sessions ORDER BY started_at ASC LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .map(parse_dt)
+    }
+
+    fn total_tracked_seconds(&self) -> i64 {
+        let conn = self.lock();
+        conn.query_row(
+            "SELECT COALESCE(SUM(duration_secs), 0) FROM usage_sessions WHERE is_idle = 0 AND duration_secs IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+    }
+
+    fn total_tracked_in_range(&self, start: NaiveDate, end: NaiveDate) -> i64 {
+        let conn = self.lock();
+        conn.query_row(
+            "SELECT COALESCE(SUM(duration_secs), 0) FROM usage_sessions WHERE is_idle = 0 AND duration_secs IS NOT NULL AND date >= ?1 AND date <= ?2",
+            params![start.to_string(), end.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+    }
+
+    // ── Maintenance ──
+
+    fn cleanup_old_sessions(&self, before: NaiveDate) {
+        let conn = self.lock();
+        if let Err(e) = conn.execute(
+            "DELETE FROM usage_sessions WHERE date < ?1",
+            params![before.to_string()],
+        ) {
+            warn!("Failed to cleanup old sessions: {e}");
+        }
+    }
+
+    fn vacuum(&self) {
+        let conn = self.lock();
+        if let Err(e) = conn.execute_batch("PRAGMA optimize; VACUUM;") {
+            warn!("Failed to vacuum: {e}");
+        }
+    }
+
+    fn clear_all_data(&self) {
+        let conn = self.lock();
+        let _ = conn.execute_batch("DELETE FROM usage_sessions; DELETE FROM page_visits;");
+    }
+
+    fn get_diary_entries(&self, start: NaiveDate, end: NaiveDate) -> Vec<(String, String)> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT date, content FROM diary_entries WHERE date >= ?1 AND date <= ?2 AND status = 'published' ORDER BY date"
+        )
+            && let Ok(rows) = stmt.query_map(params![start.to_string(), end.to_string()], |row| {
+                Ok((row.get(0)?, dec_str(row.get(1)?)))
+            }) {
+                out.extend(rows.flatten());
+            }
+        out
+    }
+
+    fn get_diary(&self, date: NaiveDate) -> Option<String> {
+        let conn = self.lock();
+        conn.query_row(
+            "SELECT content FROM diary_entries WHERE date = ?1 AND status = 'published' ORDER BY id DESC LIMIT 1",
+            params![date.to_string()],
+            |row| row.get::<_, String>(0).map(dec_str),
+        )
+        .ok()
+    }
+
+    fn set_diary(&self, date: NaiveDate, content: &str) -> String {
+        let conn = self.lock();
+        let now = Utc::now().to_rfc3339();
+        let _ = conn.execute(
+            "INSERT INTO diary_entries (date, content, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?3)
+             ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+            params![date.to_string(), enc_str(content), now],
+        );
+        content.to_string()
+    }
+
+    // ── Multi-entry diary API ──
+
+    fn get_diary_entries_detailed(
+        &self,
+        start: NaiveDate,
+        end: NaiveDate,
+    ) -> Vec<(i64, String, String, String)> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT id, date, content, status FROM diary_entries
+             WHERE date >= ?1 AND date <= ?2 ORDER BY date DESC, id DESC",
+        ) && let Ok(rows) = stmt.query_map(params![start.to_string(), end.to_string()], |row| {
+            Ok((row.get(0)?, row.get(1)?, dec_str(row.get(2)?), row.get(3)?))
+        }) {
+            out.extend(rows.flatten());
+        }
+        out
+    }
+
+    fn add_diary_entry(&self, date: NaiveDate, content: &str) -> i64 {
+        let conn = self.lock();
+        let now = Utc::now().to_rfc3339();
+        let _ = conn.execute(
+            "INSERT INTO diary_entries (date, content, created_at, updated_at, status)
+             VALUES (?1, ?2, ?3, ?3, 'published')",
+            params![date.to_string(), enc_str(content), now],
+        );
+        conn.last_insert_rowid()
+    }
+
+    /// Autosave a draft for a date (one draft per day) — returns its id.
+    fn save_diary_draft(&self, date: NaiveDate, content: &str) -> i64 {
+        let conn = self.lock();
+        let now = Utc::now().to_rfc3339();
+        // Reuse the existing draft for the day if present.
+        if let Ok(existing) = conn.query_row(
+            "SELECT id FROM diary_entries WHERE date = ?1 AND status = 'draft' ORDER BY id LIMIT 1",
+            params![date.to_string()],
+            |row| row.get::<_, i64>(0),
+        ) {
+            let _ = conn.execute(
+                "UPDATE diary_entries SET content = ?1, updated_at = ?2 WHERE id = ?3",
+                params![enc_str(content), now, existing],
+            );
+            return existing;
+        }
+        let _ = conn.execute(
+            "INSERT INTO diary_entries (date, content, created_at, updated_at, status)
+             VALUES (?1, ?2, ?3, ?3, 'draft')",
+            params![date.to_string(), enc_str(content), now],
+        );
+        conn.last_insert_rowid()
+    }
+
+    /// Publish: promote the day's draft (or insert a new published entry).
+    fn publish_diary(&self, date: NaiveDate, content: &str) -> i64 {
+        let conn = self.lock();
+        let now = Utc::now().to_rfc3339();
+        if let Ok(existing) = conn.query_row(
+            "SELECT id FROM diary_entries WHERE date = ?1 AND status = 'draft' ORDER BY id LIMIT 1",
+            params![date.to_string()],
+            |row| row.get::<_, i64>(0),
+        ) {
+            let _ = conn.execute(
+                "UPDATE diary_entries SET content = ?1, updated_at = ?2, status = 'published' WHERE id = ?3",
+                params![enc_str(content), now, existing],
+            );
+            return existing;
+        }
+        let _ = conn.execute(
+            "INSERT INTO diary_entries (date, content, created_at, updated_at, status)
+             VALUES (?1, ?2, ?3, ?3, 'published')",
+            params![date.to_string(), enc_str(content), now],
+        );
+        conn.last_insert_rowid()
+    }
+
+    /// The day's draft content, if any.
+    fn get_diary_draft(&self, date: NaiveDate) -> Option<String> {
+        let conn = self.lock();
+        conn.query_row(
+            "SELECT content FROM diary_entries WHERE date = ?1 AND status = 'draft' ORDER BY id LIMIT 1",
+            params![date.to_string()],
+            |row| row.get::<_, String>(0).map(dec_str),
+        )
+        .ok()
+    }
+
+    fn update_diary_entry(&self, id: i64, content: &str) -> Result<(), String> {
+        let conn = self.lock();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE diary_entries SET content = ?1, updated_at = ?2 WHERE id = ?3",
+            params![enc_str(content), now, id],
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+    }
+
+    fn delete_diary_entry(&self, id: i64) -> Result<(), String> {
+        let conn = self.lock();
+        conn.execute("DELETE FROM diary_entries WHERE id = ?1", params![id])
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    fn get_day_hourly(&self, date: NaiveDate) -> Vec<i64> {
+        let conn = self.lock();
+        let mut hours = vec![0i64; 24];
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT started_at, COALESCE(duration_secs, strftime('%s','now') - strftime('%s', started_at))
+             FROM usage_sessions
+             WHERE date = ?1 AND is_idle = 0 AND (duration_secs > 0 OR duration_secs IS NULL)"
+        )
+            && let Ok(rows) = stmt.query_map(params![date.to_string()], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            }) {
+                for row in rows.flatten() {
+                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&row.0) {
+                        let start = dt.with_timezone(&chrono::Local);
+                        let end = start + chrono::Duration::seconds(row.1);
+                        // Split the session across hour buckets so an
+                        // hour never exceeds 60 minutes (was: whole session
+                        // counted into its start hour → e.g. "9时 · 79分").
+                        let mut cur = start;
+                        while cur < end {
+                            let h = cur.hour() as usize;
+                            if h >= 24 { break; }
+                            let next_hour = cur
+                                .with_minute(0)
+                                .and_then(|c| c.with_second(0))
+                                .map(|c| c + chrono::Duration::hours(1))
+                                .unwrap_or(end);
+                            let seg_end = end.min(next_hour);
+                            let seg = (seg_end - cur).num_seconds().max(0);
+                            hours[h] += seg;
+                            cur = next_hour;
+                        }
+                    }
+                }
+            }
+        hours
+    }
+
+    fn get_hour_apps(&self, date: NaiveDate, hour: u32) -> Vec<(String, i64)> {
+        let conn = self.lock();
+        let mut acc: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT app_name, started_at, duration_secs FROM usage_sessions
+             WHERE date = ?1 AND is_idle = 0 AND duration_secs > 0",
+        ) && let Ok(rows) = stmt.query_map(params![date.to_string()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        }) {
+            for row in rows.flatten() {
+                let (app, started, dur) = row;
+                if let Ok(dt) = DateTime::parse_from_rfc3339(&started) {
+                    let start = dt.with_timezone(&Utc);
+                    let end = start + chrono::Duration::seconds(dur);
+                    let mut buckets = [0i64; 24];
+                    add_session_to_hours(&mut buckets, start, end);
+                    let secs = buckets.get(hour as usize).copied().unwrap_or(0);
+                    if secs > 0 {
+                        *acc.entry(app).or_insert(0) += secs;
+                    }
+                }
+            }
+        }
+        let mut out: Vec<(String, i64)> = acc.into_iter().collect();
+        out.sort_by_key(|x| std::cmp::Reverse(x.1));
+        out
+    }
+
+    fn get_app_hourly(&self, app_name: &str, date: NaiveDate) -> Vec<i64> {
+        let conn = self.lock();
+        let mut hours = [0i64; 24];
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT started_at, COALESCE(duration_secs, strftime('%s','now') - strftime('%s', started_at))
+             FROM usage_sessions
+             WHERE app_name = ?1 AND date = ?2 AND is_idle = 0
+               AND (duration_secs > 0 OR duration_secs IS NULL)",
+        )
+            && let Ok(rows) = stmt.query_map(params![app_name, date.to_string()], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            }) {
+                for row in rows.flatten() {
+                    if let Ok(parsed) = DateTime::parse_from_rfc3339(&row.0) {
+                        let start = parsed.with_timezone(&Utc);
+                        let end = start + chrono::Duration::seconds(row.1);
+                        add_session_to_hours(&mut hours, start, end);
+                    }
+                }
+            }
+        hours.to_vec()
+    }
+
+    fn get_diary_images(&self, start: NaiveDate, end: NaiveDate) -> Vec<(String, String)> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT date, path FROM diary_images WHERE date >= ?1 AND date <= ?2 ORDER BY id",
+        ) && let Ok(rows) = stmt.query_map(params![start.to_string(), end.to_string()], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        }) {
+            out.extend(rows.flatten());
+        }
+        out
+    }
+
+    fn get_diary_images_detailed(
+        &self,
+        start: NaiveDate,
+        end: NaiveDate,
+    ) -> Vec<(String, Option<i64>, String)> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT date, entry_id, path FROM diary_images WHERE date >= ?1 AND date <= ?2 ORDER BY id",
+        )
+            && let Ok(rows) = stmt.query_map(params![start.to_string(), end.to_string()], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            }) {
+                out.extend(rows.flatten());
+            }
+        out
+    }
+
+    fn add_diary_image(&self, date: NaiveDate, path: &str) -> String {
+        let conn = self.lock();
+        let now = Utc::now().to_rfc3339();
+        let _ = conn.execute(
+            "INSERT INTO diary_images (date, path, created_at) VALUES (?1, ?2, ?3)",
+            params![date.to_string(), path, now],
+        );
+        path.to_string()
+    }
+
+    fn set_diary_image_entry(&self, path: &str, entry_id: i64) -> Result<(), String> {
+        let conn = self.lock();
+        conn.execute(
+            "UPDATE diary_images SET entry_id = ?2 WHERE path = ?1",
+            params![path, entry_id],
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+    }
+
+    fn get_diary_images_for_entry(&self, entry_id: i64) -> Vec<String> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) =
+            conn.prepare("SELECT path FROM diary_images WHERE entry_id = ?1 ORDER BY id")
+            && let Ok(rows) = stmt.query_map(params![entry_id], |row| row.get::<_, String>(0))
+        {
+            out.extend(rows.flatten());
+        }
+        out
+    }
+
+    fn remove_diary_image(&self, path: &str) {
+        let conn = self.lock();
+        let _ = conn.execute("DELETE FROM diary_images WHERE path = ?1", params![path]);
+    }
+
+    fn get_day_sessions(&self, date: NaiveDate) -> Vec<(String, bool, i64, String)> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT app_name, is_idle, COALESCE(duration_secs, 0), started_at
+             FROM usage_sessions WHERE date = ?1 AND duration_secs > 0 ORDER BY started_at",
+        ) && let Ok(rows) = stmt.query_map(params![date.to_string()], |row| {
+            Ok((
+                row.get(0)?,
+                row.get::<_, i32>(1)? != 0,
+                row.get(2)?,
+                row.get(3)?,
+            ))
+        }) {
+            out.extend(rows.flatten());
+        }
+        out
+    }
+
+    fn export_rows(&self, start: NaiveDate, end: NaiveDate) -> Vec<(String, String, i64, i64)> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT app_name, date,
+                    COALESCE(SUM(CASE WHEN is_idle = 0 THEN duration_secs ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN is_idle = 1 THEN duration_secs ELSE 0 END), 0)
+             FROM usage_sessions
+             WHERE date >= ?1 AND date <= ?2 AND app_name != '__IDLE__'
+             GROUP BY app_name, date ORDER BY date",
+        ) && let Ok(rows) = stmt.query_map(params![start.to_string(), end.to_string()], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        }) {
+            out.extend(rows.flatten());
+        }
+        out
+    }
+}
+
+// ── Internal helpers ──
+
+impl SqliteStore {
+    fn row_to_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
+        Ok(SessionRecord {
+            id: row.get(0)?,
+            app_path: row.get(1)?,
+            app_name: row.get(2)?,
+            window_title: row.get::<_, Option<String>>(3)?.map(dec_str),
+            started_at: parse_dt(row.get::<_, String>(4)?),
+            ended_at: row.get::<_, Option<String>>(5)?.map(parse_dt),
+            duration_secs: row.get(6)?,
+            is_idle: row.get::<_, i32>(7)? != 0,
+            date: NaiveDate::parse_from_str(&row.get::<_, String>(8)?, "%Y-%m-%d")
+                .unwrap_or_default(),
+        })
+    }
+
+    /// 导出敏感数据明文（日记 + 窗口标题），供「设置 → 明文导出」备份使用。
+    /// 明文文件由用户自行保管，仅在本机解密后写出。
+    pub fn dump_sensitive_plaintext(&self) -> serde_json::Value {
+        let conn = self.lock();
+        let mut diary = Vec::new();
+        if let Ok(mut stmt) =
+            conn.prepare("SELECT id, date, content, status FROM diary_entries ORDER BY date, id")
+            && let Ok(rows) = stmt.query_map([], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, i64>(0)?,
+                    "date": row.get::<_, String>(1)?,
+                    "content": dec_str(row.get::<_, String>(2)?),
+                    "status": row.get::<_, String>(3)?,
+                }))
+            })
+        {
+            diary.extend(rows.flatten());
+        }
+        let mut titles = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT app_name, date, COALESCE(window_title, ''), COALESCE(duration_secs, 0)
+             FROM page_visits WHERE duration_secs > 0 ORDER BY date, started_at",
+        ) && let Ok(rows) = stmt.query_map([], |row| {
+            Ok(serde_json::json!({
+                "app": row.get::<_, String>(0)?,
+                "date": row.get::<_, String>(1)?,
+                "title": dec_str(row.get::<_, String>(2)?),
+                "duration_secs": row.get::<_, i64>(3)?,
+            }))
+        }) {
+            titles.extend(rows.flatten());
+        }
+        let mut session_titles = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT app_name, date, COALESCE(window_title, ''), COALESCE(duration_secs, 0)
+             FROM usage_sessions
+             WHERE window_title IS NOT NULL AND window_title != '' AND duration_secs > 0
+             ORDER BY date, started_at",
+        ) && let Ok(rows) = stmt.query_map([], |row| {
+            Ok(serde_json::json!({
+                "app": row.get::<_, String>(0)?,
+                "date": row.get::<_, String>(1)?,
+                "title": dec_str(row.get::<_, String>(2)?),
+                "duration_secs": row.get::<_, i64>(3)?,
+            }))
+        }) {
+            session_titles.extend(rows.flatten());
+        }
+        serde_json::json!({
+            "diary_entries": diary,
+            "page_visits": titles,
+            "session_window_titles": session_titles,
+        })
+    }
+}
+
+fn parse_dt(s: String) -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(&s)
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or_default()
+}
+
+// ── In-memory store for testing ──
+
+/// In-memory implementation of `DataStore` for unit tests and UI prototyping.
+#[cfg(test)]
+pub struct MemoryStore {
+    sessions: Mutex<Vec<SessionRecord>>,
+    summaries: Mutex<Vec<(String, NaiveDate, i64, i64)>>, // app_name, date, seconds, count
+    startups: Mutex<Vec<StartupEntryRecord>>,
+    metas: Mutex<Vec<AppMetaRecord>>,
+    next_id: Mutex<i64>,
+}
+
+#[cfg(test)]
+impl MemoryStore {
+    pub fn new() -> Self {
+        Self {
+            sessions: Mutex::new(Vec::new()),
+            summaries: Mutex::new(Vec::new()),
+            startups: Mutex::new(Vec::new()),
+            metas: Mutex::new(Vec::new()),
+            next_id: Mutex::new(1),
+        }
+    }
+}
+
+#[cfg(test)]
+impl DataStore for MemoryStore {
+    fn insert_session(&self, session: &SessionRecord) -> i64 {
+        let mut sessions = self.sessions.lock().unwrap();
+        let mut next_id = self.next_id.lock().unwrap();
+        let id = *next_id;
+        *next_id += 1;
+        let mut s = session.clone();
+        s.id = id;
+        sessions.push(s);
+        id
+    }
+
+    fn close_session(&self, id: i64, end_time: DateTime<Utc>) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if let Some(s) = sessions.iter_mut().find(|s| s.id == id) {
+            s.ended_at = Some(end_time);
+            s.duration_secs = Some((end_time - s.started_at).num_seconds());
+        }
+    }
+
+    fn cleanup_dangling_sessions(&self) {
+        let mut sessions = self.sessions.lock().unwrap();
+        sessions.retain(|s| s.duration_secs.is_some());
+    }
+
+    fn get_active_session(&self) -> Option<SessionRecord> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|s| s.ended_at.is_none())
+            .cloned()
+    }
+
+    fn get_sessions_by_date(&self, date: NaiveDate) -> Vec<SessionRecord> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| s.date == date)
+            .cloned()
+            .collect()
+    }
+
+    fn get_sessions_by_range(&self, start: NaiveDate, end: NaiveDate) -> Vec<SessionRecord> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| s.date >= start && s.date <= end)
+            .cloned()
+            .collect()
+    }
+
+    fn get_daily_summary(&self, _date: NaiveDate) -> Vec<AppUsageSummary> {
+        vec![] // Simplified for testing; real logic in SqliteStore
+    }
+
+    fn get_top_apps(
+        &self,
+        _start: NaiveDate,
+        _end: NaiveDate,
+        _limit: usize,
+    ) -> Vec<AppUsageSummary> {
+        vec![]
+    }
+
+    fn get_usage_split(&self, _start: NaiveDate, _end: NaiveDate) -> Vec<AppUsageSplit> {
+        vec![]
+    }
+
+    fn start_page_visit(
+        &self,
+        _session_id: i64,
+        _app_name: &str,
+        _title: Option<&str>,
+        _date: NaiveDate,
+    ) -> i64 {
+        -1
+    }
+
+    fn close_page_visit(&self, _visit_id: i64, _end_time: DateTime<Utc>) {}
+
+    fn get_window_titles(&self, app_name: &str, _date: NaiveDate) -> Vec<(String, i64)> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| s.app_name == app_name && !s.is_idle)
+            .filter_map(|s| {
+                s.duration_secs
+                    .map(|d| (s.window_title.clone().unwrap_or_default(), d))
+            })
+            .fold(std::collections::HashMap::new(), |mut acc, (title, dur)| {
+                *acc.entry(title).or_insert(0) += dur;
+                acc
+            })
+            .into_iter()
+            .collect()
+    }
+
+    fn upsert_startup_entries(&self, entries: &[StartupEntryRecord]) {
+        let mut startups = self.startups.lock().unwrap();
+        for e in entries {
+            startups.push(e.clone());
+        }
+    }
+
+    fn get_all_startup_entries(&self) -> Vec<StartupEntryRecord> {
+        self.startups.lock().unwrap().clone()
+    }
+
+    fn set_startup_enabled(
+        &self,
+        id: i64,
+        enabled: bool,
+        backup: Option<&str>,
+        backup_path: Option<&str>,
+    ) {
+        let mut startups = self.startups.lock().unwrap();
+        if let Some(e) = startups.iter_mut().find(|e| e.id == id) {
+            e.enabled = enabled;
+            if let Some(v) = backup {
+                e.backup_value = Some(v.to_string());
+            }
+            if let Some(p) = backup_path {
+                e.backup_path = Some(p.to_string());
+            }
+        }
+    }
+
+    fn get_app_meta(&self, exe_path: &str) -> Option<AppMetaRecord> {
+        self.metas
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|m| m.app_path == exe_path)
+            .cloned()
+    }
+
+    fn set_app_meta(&self, meta: &AppMetaRecord) {
+        let mut metas = self.metas.lock().unwrap();
+        if let Some(existing) = metas.iter_mut().find(|m| m.app_path == meta.app_path) {
+            *existing = meta.clone();
+        } else {
+            metas.push(meta.clone());
+        }
+    }
+
+    fn recording_started_at(&self) -> Option<DateTime<Utc>> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .min_by_key(|s| s.started_at)
+            .map(|s| s.started_at)
+    }
+
+    fn total_tracked_seconds(&self) -> i64 {
+        self.sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| !s.is_idle)
+            .filter_map(|s| s.duration_secs)
+            .sum()
+    }
+
+    fn total_tracked_in_range(&self, start: NaiveDate, end: NaiveDate) -> i64 {
+        self.sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| !s.is_idle && s.date >= start && s.date <= end)
+            .filter_map(|s| s.duration_secs)
+            .sum()
+    }
+
+    fn cleanup_old_sessions(&self, before: NaiveDate) {
+        self.sessions.lock().unwrap().retain(|s| s.date >= before);
+    }
+
+    fn vacuum(&self) {}
+
+    fn clear_all_data(&self) {
+        self.sessions.lock().unwrap().clear();
+    }
+
+    fn export_rows(&self, _start: NaiveDate, _end: NaiveDate) -> Vec<(String, String, i64, i64)> {
+        vec![]
+    }
+
+    fn get_diary_entries(&self, _start: NaiveDate, _end: NaiveDate) -> Vec<(String, String)> {
+        vec![]
+    }
+
+    fn get_diary(&self, _date: NaiveDate) -> Option<String> {
+        None
+    }
+
+    fn set_diary(&self, _date: NaiveDate, content: &str) -> String {
+        content.to_string()
+    }
+
+    fn get_diary_entries_detailed(
+        &self,
+        _start: NaiveDate,
+        _end: NaiveDate,
+    ) -> Vec<(i64, String, String, String)> {
+        vec![]
+    }
+
+    fn save_diary_draft(&self, _date: NaiveDate, _content: &str) -> i64 {
+        1
+    }
+
+    fn publish_diary(&self, _date: NaiveDate, _content: &str) -> i64 {
+        1
+    }
+
+    fn get_diary_draft(&self, _date: NaiveDate) -> Option<String> {
+        None
+    }
+
+    fn add_diary_entry(&self, _date: NaiveDate, _content: &str) -> i64 {
+        1
+    }
+
+    fn update_diary_entry(&self, _id: i64, _content: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn delete_diary_entry(&self, _id: i64) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn get_day_sessions(&self, _date: NaiveDate) -> Vec<(String, bool, i64, String)> {
+        vec![]
+    }
+
+    fn get_day_hourly(&self, _date: NaiveDate) -> Vec<i64> {
+        vec![0; 24]
+    }
+
+    fn get_hour_apps(&self, _date: NaiveDate, _hour: u32) -> Vec<(String, i64)> {
+        vec![]
+    }
+
+    fn get_app_hourly(&self, _app_name: &str, _date: NaiveDate) -> Vec<i64> {
+        vec![0; 24]
+    }
+
+    fn get_diary_images(&self, _start: NaiveDate, _end: NaiveDate) -> Vec<(String, String)> {
+        vec![]
+    }
+
+    fn get_diary_images_detailed(
+        &self,
+        _start: NaiveDate,
+        _end: NaiveDate,
+    ) -> Vec<(String, Option<i64>, String)> {
+        vec![]
+    }
+
+    fn add_diary_image(&self, _date: NaiveDate, path: &str) -> String {
+        path.to_string()
+    }
+
+    fn set_diary_image_entry(&self, _path: &str, _entry_id: i64) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn get_diary_images_for_entry(&self, _entry_id: i64) -> Vec<String> {
+        vec![]
+    }
+
+    fn remove_diary_image(&self, _path: &str) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn make_session(
+        app: &str,
+        started: DateTime<Utc>,
+        dur: Option<i64>,
+        idle: bool,
+    ) -> SessionRecord {
+        SessionRecord {
+            id: 0,
+            app_path: format!("C:/{app}.exe"),
+            app_name: app.into(),
+            window_title: None,
+            started_at: started,
+            ended_at: None,
+            duration_secs: dur,
+            is_idle: idle,
+            date: started.date_naive(),
+        }
+    }
+
+    #[test]
+    fn test_memory_store_insert_and_query() {
+        let store = MemoryStore::new();
+        let id = store.insert_session(&make_session("TestApp", Utc::now(), None, false));
+        assert!(id > 0);
+        assert!(store.get_active_session().is_some());
+    }
+
+    #[test]
+    fn test_recording_started_at() {
+        let store = MemoryStore::new();
+        let t1 = Utc::now();
+        let t2 = t1 + chrono::Duration::hours(1);
+        store.insert_session(&make_session("A", t1, Some(3600), false));
+        store.insert_session(&make_session("B", t2, Some(1800), false));
+        assert_eq!(store.recording_started_at().unwrap(), t1);
+    }
+
+    #[test]
+    fn test_total_tracked_excludes_idle() {
+        let store = MemoryStore::new();
+        let now = Utc::now();
+        store.insert_session(&make_session("Work", now, Some(1000), false));
+        store.insert_session(&make_session("Idle", now, Some(500), true));
+        assert_eq!(store.total_tracked_seconds(), 1000);
+    }
+}
+
+#[cfg(test)]
+mod sqlite_tests {
+    use super::*;
+    use chrono::{Duration, TimeZone, Utc};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    fn temp_store() -> SqliteStore {
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let path =
+            std::env::temp_dir().join(format!("tt_sqlite_test_{}_{}.db", std::process::id(), n));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(&format!("{}-shm", path.display()));
+        SqliteStore::open(path).unwrap()
+    }
+
+    fn sess(app: &str, started: DateTime<Utc>, dur: i64, idle: bool) -> SessionRecord {
+        SessionRecord {
+            id: 0,
+            app_path: format!("c:/{app}.exe"),
+            app_name: app.into(),
+            window_title: None,
+            started_at: started,
+            ended_at: Some(started + Duration::seconds(dur)),
+            duration_secs: Some(dur),
+            is_idle: idle,
+            date: started.date_naive(),
+        }
+    }
+
+    #[test]
+    fn test_usage_split_active_and_idle() {
+        let store = temp_store();
+        // 固定时间，避免在 UTC 午夜附近运行时 now-2h 跨天导致断言不稳定。
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 10, 0, 0).unwrap();
+        let today = now.date_naive();
+        store.insert_session(&sess("code", now - Duration::hours(2), 3600, false));
+        store.insert_session(&sess("code", now - Duration::hours(1), 1800, true));
+        store.insert_session(&sess("edge", now - Duration::minutes(30), 900, false));
+
+        let split = store.get_usage_split(today, today);
+        assert_eq!(split.len(), 2);
+        let code = split.iter().find(|s| s.app_name == "code").unwrap();
+        assert_eq!(code.active_seconds, 3600);
+        assert_eq!(code.idle_seconds, 1800);
+    }
+
+    #[test]
+    fn test_zero_duration_sessions_excluded() {
+        let store = temp_store();
+        let now = Utc::now();
+        let today = now.date_naive();
+        store.insert_session(&sess("code", now, 0, false)); // 0s — excluded
+        store.insert_session(&sess("edge", now - Duration::minutes(5), 300, false));
+
+        let split = store.get_usage_split(today, today);
+        assert_eq!(split.len(), 1);
+        assert_eq!(split[0].app_name, "edge");
+    }
+
+    #[test]
+    fn test_window_titles_via_page_visits() {
+        let store = temp_store();
+        let now = Utc::now();
+        let today = now.date_naive();
+        let sid = store.insert_session(&sess("edge", now - Duration::minutes(20), 1200, false));
+
+        let v1 = store.start_page_visit(sid, "edge", Some("bilibili - Edge"), today);
+        let _v2 = store.start_page_visit(sid, "edge", Some("github - Edge"), today);
+        store.close_page_visit(v1, now + Duration::minutes(5));
+        store.close_page_visit(_v2, now + Duration::minutes(10));
+
+        let titles = store.get_window_titles("edge", today);
+        assert!(
+            titles.iter().any(|(t, _)| t == "bilibili - Edge"),
+            "bilibili missing: {titles:?}"
+        );
+        assert!(
+            titles.iter().any(|(t, _)| t == "github - Edge"),
+            "github missing: {titles:?}"
+        );
+    }
+
+    #[test]
+    fn test_recording_stats() {
+        let store = temp_store();
+        let now = Utc::now();
+        let today = now.date_naive();
+        let t1 = now - Duration::days(2);
+        store.insert_session(&sess("code", t1, 7200, false));
+        store.insert_session(&sess("code", now - Duration::hours(1), 600, true)); // idle excluded
+
+        assert_eq!(
+            store.recording_started_at().unwrap().date_naive(),
+            t1.date_naive()
+        );
+        assert_eq!(store.total_tracked_seconds(), 7200); // idle not counted
+        assert!(store.total_tracked_in_range(today, today) >= 0);
+    }
+    #[test]
+    fn test_hour_apps_and_app_hourly_cross_boundary() {
+        let store = temp_store();
+        let day = chrono::Local::now().date_naive();
+        let start10 = day
+            .and_hms_opt(10, 55, 0)
+            .unwrap()
+            .and_local_timezone(chrono::Local)
+            .unwrap()
+            .with_timezone(&Utc);
+        let start11 = day
+            .and_hms_opt(11, 0, 0)
+            .unwrap()
+            .and_local_timezone(chrono::Local)
+            .unwrap()
+            .with_timezone(&Utc);
+        // code: 10:55 -> 11:05 (5min in hour 10, 5min in hour 11)
+        store.insert_session(&sess("code", start10, 600, false));
+        // edge: 11:00 -> 11:05 (5min in hour 11)
+        store.insert_session(&sess("edge", start11, 300, false));
+        let h10 = store.get_hour_apps(day, 10);
+        let h11 = store.get_hour_apps(day, 11);
+        let find = |list: &[(String, i64)], name: &str| {
+            list.iter()
+                .find(|(a, _)| a == name)
+                .map(|(_, s)| *s)
+                .unwrap_or(0)
+        };
+        assert_eq!(find(&h10, "code"), 300, "hour10 code should be 300s");
+        assert_eq!(find(&h11, "code"), 300, "hour11 code should be 300s");
+        assert_eq!(find(&h11, "edge"), 300, "hour11 edge should be 300s");
+        assert_eq!(find(&h10, "edge"), 0, "hour10 edge should be 0s");
+        let code_hourly = store.get_app_hourly("code", day);
+        assert_eq!(code_hourly[10], 300);
+        assert_eq!(code_hourly[11], 300);
+    }
+}

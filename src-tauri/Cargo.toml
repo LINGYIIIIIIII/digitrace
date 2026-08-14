@@ -1,0 +1,33 @@
+[package]
+name = "timetrace"
+version = "2.19.1"
+edition = "2021"
+description = "数迹"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "devtools"] }
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+chrono = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+dirs = "6"
+windows-sys = { version = "0.61", features = [
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dwm",
+    "Win32_System_Com",
+    "Win32_Foundation",
+] }
+# Windows 官方按应用流量接口（ConnectionProfile.GetAttributedNetworkUsageAsync，
+# 即设置里「数据使用量 → 查看各应用的使用情况」的数据源，免管理员）。
+windows = { version = "0.61.3", features = ["Networking_Connectivity"] }
+sha2 = "0.10"
+sysinfo.workspace = true
+timetrace-core = { path = "../crates/core" }

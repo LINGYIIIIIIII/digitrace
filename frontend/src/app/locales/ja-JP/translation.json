@@ -1,0 +1,449 @@
+{
+  "appShell": {
+    "tabs": {
+      "dashboard": "ダッシュボード",
+      "usage": "アプリ使用統計",
+      "calendar": "カレンダー",
+      "network": "ネットワーク",
+      "health": "健康リマインダー",
+      "hardware": "ハードウェア",
+      "settings": "設定",
+      "about": "情報"
+    },
+    "titleBar": {
+      "minimize": "最小化",
+      "maximize": "最大化",
+      "restore": "元に戻す",
+      "close": "閉じる"
+    },
+    "status": {
+      "monitoring": "監視中",
+      "paused": "一時停止",
+      "trayRunning": "トレイ実行",
+      "todayActive": "今日のアクティブ",
+      "todayIdle": "今日のアイドル"
+    },
+    "sidebar": {
+      "collapse": "サイドバーを閉じる",
+      "expand": "サイドバーを開く"
+    },
+    "bridgeWarning": {
+      "closeAria": "閉じる"
+    }
+  },
+  "placeholder": {
+    "developing": "開発中",
+    "dashboardTitle": "ダッシュボード",
+    "dashboardDescription": "アプリ使用時間、分布、時間別チャートとカレンダーヒートマップをここに表示します。",
+    "calendarTitle": "カレンダー",
+    "calendarDescription": "年ナビゲーションと中国語の曜日に対応した月表示。",
+    "networkTitle": "ネットワーク監視",
+    "networkDescription": "リアルタイム速度曲線と履歴統計をここに表示します。",
+    "settingsTitle": "設定",
+    "settingsDescription": "監視スイッチ、自動更新、フォント、ログパスとアンインストール。"
+  },
+  "common": {
+    "cancel": "キャンセル",
+    "save": "保存"
+  },
+  "dashboard": {
+    "range": {
+      "today": "今日",
+      "yesterday": "昨日",
+      "week": "今週",
+      "month": "今月"
+    },
+    "edit": "編集",
+    "templateTitle": "テンプレート",
+    "templates": {
+      "balanced": "バランス型",
+      "compact": "コンパクト型",
+      "showcase": "ショーケース型",
+      "classic": "クラシック型"
+    },
+    "aggBadge": "集約",
+    "aggregateHint": "集約カードは複数のカードを1枚にまとめます。有効にすると構成する個別カードは自動的に非表示になります（例：「ハードウェア集約」と「温度集約」は二者択一）。",
+    "moveUp": "上へ",
+    "moveDown": "下へ",
+    "cardSize": {
+      "sm": "小 (1/3)",
+      "md": "中 (2/3)",
+      "lg": "大 (1行)"
+    },
+    "editTitle": "ダッシュボードを編集",
+    "editDescription": "タイルをドラッグして並べ替え、右下のハンドルでサイズ調整、目のアイコンでカードを非表示にします。",
+    "hideCard": "カードを非表示",
+    "resizeHint": "タイルをドラッグして並べ替え · 右下ハンドルでサイズ調整（小 / 中 / 大）",
+    "hiddenCards": "非表示のカード（クリックで復元）",
+    "emptyGrid": "すべてのカードが非表示です。下から復元できます",
+    "resetLayout": "既定に戻す",
+    "cards": {
+      "stats": "統計",
+      "appUsage": "アプリ統計",
+      "netApps": "ネットワークトラフィック",
+      "hourly": "時間別",
+      "calendar": "カレンダー",
+      "networkStats": "ネットワーク統計",
+      "networkLive": "リアルタイム速度曲線",
+      "attrUsage": "アプリ別トラフィック",
+      "hardwareGauges": "ハードウェアゲージ",
+      "diskTemp": "ディスク温度",
+      "health": "健康リマインダー",
+      "durationAgg": "時間集約",
+      "netAgg": "ネットワーク集約",
+      "hwAgg": "ハードウェア集約",
+      "tempAgg": "温度集約"
+    },
+    "cardsDesc": {
+      "stats": "アクティブ / アイドル / アプリ数",
+      "appUsage": "アプリ別使用時間の棒グラフと詳細",
+      "netApps": "TCP 接続中のアプリをリアルタイム表示",
+      "hourly": "時間別使用曲線",
+      "calendar": "月間ヒートマップと日別詳細",
+      "networkStats": "リアルタイム速度とセッション合計",
+      "networkLive": "ダウンロード / アップロード曲線",
+      "attrUsage": "Windows 公式のアプリ別トラフィック（約1時間更新）",
+      "hardwareGauges": "CPU / GPU / メモリゲージ",
+      "diskTemp": "ディスク温度リスト",
+      "health": "連続使用 / 次のリマインダー",
+      "durationAgg": "統計 + 時間別曲線",
+      "netAgg": "ネットワーク統計 + リアルタイム曲線",
+      "hwAgg": "ハードウェアゲージ + ディスク温度",
+      "tempAgg": "CPU / GPU / ディスク温度"
+    },
+    "stats": {
+      "active": "アクティブ時間",
+      "idle": "アイドル時間",
+      "apps": "使用アプリ"
+    },
+    "appUsage": {
+      "title": "アプリ別統計"
+    },
+    "netApps": {
+      "title": "アプリ別ネットワークトラフィック"
+    },
+    "hourly": {
+      "title": "時間別使用",
+      "activeLabel": "アクティブ時間"
+    },
+    "calendar": {
+      "active": "アクティブ時間",
+      "sessions": "セッション数"
+    },
+    "empty": "使用データはまだありません。アプリを使用すると自動的に記録されます。",
+    "loadFailed": "データの読み込みに失敗しました",
+    "retry": "再試行"
+  },
+  "usage": {
+    "title": "アプリ使用統計",
+    "total": "総アクティブ",
+    "loading": "読み込み中…",
+    "activeLabel": "アクティブ時間",
+    "chart": {
+      "bar": "アプリ別使用時間（上位10）",
+      "pie": "アプリ別シェア",
+      "hourly": "時間別使用"
+    },
+    "noDetail": "このアプリの詳細はありません。"
+  },
+  "calendar": {
+    "prevYear": "前年",
+    "nextYear": "翌年",
+    "prevMonth": "前月",
+    "nextMonth": "翌月",
+    "active": "アクティブ時間",
+    "idle": "アイドル時間",
+    "sessions": "セッション数",
+    "sessionList": "セッション記録",
+    "today": "今日",
+    "monthView": "月表示",
+    "yearView": "年表示"
+  },
+  "network": {
+    "download": "ダウンロード",
+    "upload": "アップロード",
+    "sessionDownload": "累計ダウンロード",
+    "sessionUpload": "累計アップロード",
+    "liveTitle": "リアルタイム速度",
+    "historyTitle": "履歴",
+    "avg": "平均",
+    "max": "ピーク",
+    "noHistory": "履歴データはありません",
+    "statsTitle": "トラフィック統計",
+    "totalDownload": "累計ダウンロード",
+    "totalUpload": "累計アップロード",
+    "peakDownload": "ピークダウンロード",
+    "peakUpload": "ピークアップロード",
+    "activeDays": "データあり {{count}} 日",
+    "dailyAvg": "日平均 {{value}}",
+    "dailyTitle": "日別トラフィック",
+    "hourlyTitle": "時間別トラフィック",
+    "rangeDays": "過去{{days}}日",
+    "range": {
+      "24h": "24h",
+      "today": "今日",
+      "session": "今回の起動",
+      "7d": "過去7日",
+      "30d": "過去30日"
+    },
+    "appTraffic": "アプリ別トラフィック",
+    "appFlow": "トラフィック",
+    "appTrafficEmpty": "アプリの通信データはまだありません — TCP 接続のあるアプリをリアルタイム集計",
+    "appTotal": "累計",
+    "appActive": "アクティブ",
+    "bytesHint": "バイト単位の通信量は管理者権限が必要です（Windows の制限）。現在は TCP 接続数で集計しています。",
+    "attrTitle": "アプリ別通信量（Windows 公式データ）",
+    "attrToday": "今日",
+    "attrRefresh": "更新",
+    "attrLoading": "Windows の利用記録を読み込み中…",
+    "attrEmpty": "この期間のアプリ通信記録はまだありません（Windows 公式集計、通常約 1 時間遅れ）",
+    "attrUnavailable": "現在アプリ別通信量を取得できません（ネットワーク未接続または非対応システム）。",
+    "attrUnknown": "未帰属",
+    "attrHint": "データ元：Windows データ使用量（管理者不要）· {{since}} ~ {{until}} · リアルタイムではなく約1時間単位で更新"
+  },
+  "hardware": {
+    "title": "ハードウェア監視",
+    "description": "CPU・メモリ・ディスクなどのハードウェア監視は今後のバージョンで提供予定です。",
+    "comingSoon": "近日公開",
+    "cpu": "CPU 使用率",
+    "memory": "メモリ使用率",
+    "disks": "ディスク",
+    "cpuTemp": "CPU 温度",
+    "gpuTemp": "GPU 温度",
+    "diskTemp": "ディスク温度",
+    "cpuPct": "CPU 使用率 (%)",
+    "memPct": "メモリ使用率 (%)",
+    "cpuTempLine": "CPU 温度 (°C)",
+    "gpuTempLine": "GPU 温度 (°C)",
+    "liveTitle": "リアルタイム曲線",
+    "liveHint": "リアルタイム更新間隔 {{seconds}} 秒（設定 → 一般 → リアルタイムデータ更新間隔で変更可）",
+    "usageLabel": "使用率 {{pct}}%",
+    "avgTempHint": "平均温度 = 全コア温度の平均（全 {{cores}} コア）",
+    "packageTemp": "パッケージ温度",
+    "core": "コア",
+    "tempUnavailable": "CPU 温度は現在利用できません",
+    "restartElevated": "管理者として再起動",
+    "installDriver": "カーネルドライバをインストール",
+    "gpuNotFound": "NVIDIA GPU を検出できません（GPU 温度は NVIDIA のみ対応）",
+    "diskTempHint": "ディスク温度は Windows ストレージ API から取得します：多くの NVMe SSD は管理者権限でのみ値を返します。取得できない場合は — と表示されます。",
+    "driverConfirmTitle": "カーネルドライバをインストールしますか？",
+    "driverConfirmDescription": "カーネルドライバはシステムの最下層に書き込み、管理者権限が必要です。セキュリティソフト（例：360）にブロックされる可能性があります。THRM などが既にインストールしている場合は、数迹が再利用し重複インストールはしません。",
+    "cancel": "キャンセル",
+    "available": "空き",
+    "loading": "読み込み中…",
+    "loadFailed": "ハードウェア情報の読み込みに失敗しました"
+  },
+  "settings": {
+    "tabs": {
+      "general": "一般",
+      "appearance": "外観",
+      "startup": "起動とトレイ",
+      "hardware": "ハードウェア",
+      "update": "更新",
+      "logs": "ログとデータ"
+    },
+    "titlebar": {
+      "title": "タイトルバー表示",
+      "monitoring": "監視ステータス",
+      "tray": "トレイ実行",
+      "active": "今日のアクティブ時間",
+      "idle": "今日のアイドル時間"
+    },
+    "section": {
+      "monitor": "監視",
+      "refresh": "自動更新",
+      "appearance": "外観",
+      "startup": "起動とトレイ",
+      "logs": "ログ",
+      "data": "データ"
+    },
+    "monitor": {
+      "autoTrack": "起動時に自動追跡",
+      "autoTrackDescription": "起動後にアプリ使用時間の記録を自動開始します。",
+      "pollInterval": "サンプリング間隔",
+      "pollIntervalDescription": "バックグラウンド監視のサンプリング頻度。",
+      "idleThreshold": "アイドル判定",
+      "idleThresholdDescription": "この時間操作がないとアイドルと判定します。"
+    },
+    "refresh": {
+      "interval": "データ更新間隔",
+      "intervalDescription": "ダッシュボードとタイトルバーのリアルタイムデータ更新頻度。",
+      "liveInterval": "リアルタイムデータ更新間隔",
+      "liveIntervalDescription": "ハードウェア監視・ネットワーク監視のリアルタイム曲線の更新頻度（1秒にすると滑らかですが負荷はやや上がります）。"
+    },
+    "timezone": {
+      "title": "日付タイムゾーン",
+      "description": "「今日 / 今週 / 今月」と履歴ウィンドウの日付境界に使用します。",
+      "system": "システムに従う",
+      "utc8": "UTC+8 (GMT+8)"
+    },
+    "theme": {
+      "title": "テーマ",
+      "description": "ライト / ダーク / システム連動を切り替えます。",
+      "system": "システムに従う",
+      "light": "ライト",
+      "dark": "ダーク"
+    },
+    "blur": {
+      "title": "ウィンドウ素材",
+      "description": "ウィンドウの背景素材を選択。再起動後に反映されます。",
+      "auto": "自動",
+      "mica": "Mica",
+      "acrylic": "アクリル",
+      "tabbed": "Mica Alt",
+      "off": "オフ",
+      "manualRestartNotice": "ウィンドウ素材を保存しました。再起動後に反映されます",
+      "restartTitle": "ウィンドウ素材が変更されました",
+      "restartDescription": "新しい素材はアプリの再起動後に反映されます。今すぐ再起動しますか？",
+      "restartNow": "今すぐ再起動",
+      "restartLater": "後で"
+    },
+    "font": {
+      "title": "フォント",
+      "description": "UI に使用するフォントを選択します。即時反映されます。",
+      "system": "システム既定",
+      "harmonyos": "HarmonyOS Sans",
+      "noto": "Noto Sans SC",
+      "misans": "MiSans"
+    },
+    "zoom": {
+      "title": "画面ズーム",
+      "description": "フォント・カード・グラフをまとめて拡大縮小します。ドラッグ中は上部にパーセントが表示されます。"
+    },
+    "uiTuner": {
+      "title": "UI調整パネル",
+      "description": "右下にスライダーを表示し、カードの角丸・間隔・余白・タイトル文字サイズをリアルタイムに調整します。"
+    },
+    "devTools": {
+      "title": "開発者ツール",
+      "description": "ブラウザの開発者ツールを開き、UI要素をクリックしてスタイルをリアルタイムに確認・調整します。",
+      "open": "開く"
+    },
+    "language": {
+      "title": "言語",
+      "description": "表示言語を切り替えます。即時反映され、選択は記憶されます。"
+    },
+    "startup": {
+      "autoStart": "ログイン時に自動起動",
+      "autoStartDescription": "Windows ログイン後、バックグラウンド（トレイ）で自動起動します。",
+      "enabled": "自動起動を有効にしました",
+      "disabled": "自動起動を無効にしました",
+      "failed": "自動起動の変更に失敗しました",
+      "minimizeToTray": "閉じるとトレイに最小化",
+      "minimizeToTrayDescription": "閉じるボタンでトレイに隠れ、プロセスはバックグラウンドで継続します。",
+      "launchShowWindow": "起動時にメイン画面を表示",
+      "launchShowWindowDescription": "起動時にメイン画面を表示します。オフにするとトレイで起動します。ログオン時の自動起動は常にトレイで静かに起動し、再起動・更新・再インストール後は必ずメイン画面を展開します。"
+    },
+    "tray": {
+      "title": "トレイ表示",
+      "cpu": "CPU 使用率",
+      "memory": "メモリ使用率",
+      "network": "リアルタイム速度",
+      "active": "今日の稼働",
+      "temp": "温度",
+      "hint": "データ行はホバー時のツールチップに表示されます（先頭はバージョン）。右クリックメニューは操作項目のみで、末尾にバージョンが表示されます。"
+    },
+    "hardware": {
+      "driverTitle": "カーネルドライバ（任意）",
+      "driverStatus": "PawnIO ドライバの状態",
+      "statusRunning": "インストール済み v{{version}} · 実行中（他ソフトと共用）",
+      "statusStopped": "インストール済み v{{version}} · 未実行",
+      "statusNotInstalled": "未インストール",
+      "install": "カーネルドライバをインストール",
+      "uninstall": "カーネルドライバをアンインストール",
+      "driverRisk": "リスクと選択：CPU 温度の取得には CPU レジスタ（MSR）の読み取りが必要で、Windows では管理者権限とカーネルドライバが求められます。ドライバはシステム最下層に書き込み、管理者権限が必要で、セキュリティソフト（例：360）にブロックされる可能性があることをご確認ください。インストールしない場合、CPU 温度が表示されないだけで、他の機能は影響を受けません。THRM などが既にインストールしている場合は、数迹は再利用し重複インストールしません。",
+      "tempTitle": "温度について",
+      "tempDescription": "GPU：管理者不要（NVML）。ディスク：Windows ストレージ API、ベストエフォート、多くは管理者が必要。CPU：PawnIO カーネルドライバと、数迹を管理者として実行する必要があります。管理者として一度再起動すれば読み取れ、通常時は通常モードで実行できます。",
+      "installTitle": "カーネルドライバをインストールしますか？",
+      "installDescription": "PawnIO 公式インストーラを起動します（管理者権限が必要）。システムのセキュリティ確認や 360 によるブロックが発生する可能性があります。インストール後、このページに戻ると状態が「実行中」になります。",
+      "uninstallTitle": "カーネルドライバをアンインストールしますか？",
+      "uninstallDescription": "アンインストール後、CPU 温度は利用できなくなります。THRM など他のソフトがこのドライバを使用している可能性があるため、事前にご確認ください。",
+      "cancel": "キャンセル"
+    },
+    "logs": {
+      "path": "ログファイルのパス",
+      "dataLocation": "データ保存先",
+      "dataLocationDescription": "使用時間・ネットワーク・設定データはここに保存されます（ローカルのみ、アップロードなし）"
+    },
+    "data": {
+      "clearTitle": "すべてのデータを削除",
+      "clearDescription": "ローカルに保存された使用記録と監視データを削除します。",
+      "clear": "データを削除",
+      "confirmTitle": "すべてのデータを削除しますか？",
+      "confirmDescription": "この操作は元に戻せません。使用時間・カレンダー・ネットワーク記録がすべて削除されます。",
+      "cancel": "キャンセル",
+      "confirmClear": "削除する",
+      "cleared": "データを削除しました",
+      "clearFailed": "削除に失敗しました。後でもう一度お試しください",
+      "exportTitle": "平文バックアップをエクスポート",
+      "exportDescription": "日記とウィンドウタイトルを復号して JSON ファイルとして書き出します（平文のため大切に保管してください。Windows 再インストール前のバックアップに便利です）。",
+      "export": "平文をエクスポート",
+      "exported": "平文バックアップを書き出しました",
+      "exportFailed": "エクスポートに失敗しました",
+      "openFolder": "フォルダーを開く"
+    },
+    "update": {
+      "autoCheck": "更新を自動チェック",
+      "autoCheckDescription": "起動後に新バージョンを自動チェックします（1 日最大 1 回）。",
+      "manifestUrl": "更新マニフェスト URL",
+      "manifestUrlDescription": "JSON 形式：{ version, url, sha256, notes }。HTTPS 必須。SHA-256 で検証します。",
+      "hint": "ダウンロード後にハッシュ検証し、失敗した場合はインストールを拒否します。上書き前に旧プロセスは自動終了します。",
+      "statusNoUrl": "更新 URL が未設定のため、ネットワークに接続しません。",
+      "statusAutoOn": "自動チェック有効（1 日最大 1 回ネットワーク接続）。",
+      "statusAutoOff": "自動チェックは無効です。「更新を確認」を押したときだけ接続します。"
+    }
+  },
+  "about": {
+    "ack": {
+      "title": "謝辞",
+      "timetrace": "データ収集と保存の技術基盤（MIT ライセンス）",
+      "thrm": "UI フレームワークと操作設計の参考（オープンソース）"
+    },
+    "privacy": "プライバシー",
+    "privacyDescription": "すべてのデータは %APPDATA%\\TimeTrace にのみ保存され、アップロードはされません。",
+    "credits": "数迹（Digitrace）—— 私たちが一緒に開発した独立プロジェクト",
+    "update": {
+      "title": "更新",
+      "check": "更新を確認",
+      "checking": "確認中…",
+      "checkFailed": "確認に失敗しました",
+      "found": "新しいバージョン v{{version}} があります",
+      "download": "ダウンロードして更新",
+      "downloading": "ダウンロード中…",
+      "installing": "ダウンロード完了、インストール中…",
+      "latest": "最新バージョンです",
+      "failed": "更新に失敗しました"
+    }
+  },
+  "takeover": {
+    "title": "新しいバージョン v{{version}} を検出しました",
+    "description": "現在のバージョンを終了して新しいバージョンを起動しますか？",
+    "elevatedHint": "新しいバージョンは管理者として起動します。「今すぐ切り替え」をクリックし、システムのセキュリティ確認で「はい」を選択してください。",
+    "switchNow": "今すぐ切り替え",
+    "later": "後で",
+    "showWindow": "切り替え後にメイン画面を開く"
+  },
+  "health": {
+    "streak": "現在の連続使用",
+    "nextReminder": "次のリマインダーまで",
+    "remindersToday": "今日の通知回数",
+    "idle": "現在の状態",
+    "using": "使用中",
+    "away": "離席中（休憩）",
+    "enable": "健康リマインダーを有効化",
+    "enableDescription": "パソコンの連続使用が設定時間に達すると、Windows 通知で休憩を促します。",
+    "reminderInterval": "リマインダー間隔",
+    "breakThreshold": "休憩とみなす離席時間（計測リセット）",
+    "minutes": "{{minutes}} 分",
+    "test": "通知をテスト",
+    "testing": "送信中…",
+    "testOk": "テスト通知を送信しました",
+    "testFailed": "送信に失敗しました",
+    "lastReminder": "前回の通知 {{time}}",
+    "hint": "健康リマインダーはすべてこの PC 内で完結します。キーボード/マウスの操作状況から連続使用時間を判定し、データをアップロードすることはありません。"
+  },
+  "fatalError": {
+    "title": "起動に失敗しました",
+    "retry": "再試行"
+  }
+}

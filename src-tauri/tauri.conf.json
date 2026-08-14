@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "数迹",
+  "version": "2.19.1",
+  "identifier": "com.digitrace.app",
+  "build": {
+    "frontendDist": "../frontend/dist",
+    "beforeDevCommand": "bun run dev",
+    "beforeBuildCommand": "bun run build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "数迹",
+        "width": 1100,
+        "height": 760,
+        "minWidth": 900,
+        "minHeight": 620,
+        "transparent": true,
+        "decorations": false,
+        "resizable": true,
+        "visible": false,
+        "dragDropEnabled": false,
+        "devtools": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": false,
+    "icon": ["icons/icon.ico"]
+  }
+}

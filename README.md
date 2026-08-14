@@ -1,0 +1,69 @@
+<p align="center">
+  <h1 align="center">数迹 Digitrace</h1>
+</p>
+
+<p align="center">
+  本地优先的 Windows 使用统计与监控工具
+  <br>
+  Tauri 2 + Next.js + Rust · 数据全部本地存储，无遥测
+</p>
+
+---
+
+## 功能特性
+
+- **仪表盘** — 卡片可编辑（增删/排序/三档尺寸），日历热力、应用统计、流量统计、硬件表盘一屏聚合
+- **应用使用统计** — 自动记录前台应用活跃时长，识别空闲/锁屏/睡眠，按应用/小时/窗口标题细分
+- **日历** — 月视图 + 年份跳转、中文星期、当日使用详情、全年热力视图
+- **网络监控** — 实时下载/上传速率曲线、24h/今日/本次启动/近 7 天/近 30 天历史、按应用流量（Windows 官方接口，免管理员）
+- **硬件监控** — CPU/GPU 占用与温度、内存、磁盘温度（可选内核驱动读取 CPU 寄存器，默认不安装）
+- **健康提醒** — 连续使用检测，Windows 原生通知，状态跨重启保留
+- **系统托盘** — 实时数据行、显示内容可配置、版本号
+- **界面** — 无边框玻璃材质、主题/字体/中英日三语、整体无极缩放（75%–175%）、深色浅色
+
+## 隐私与数据
+
+- 所有数据保存在本机 `%APPDATA%\TimeTrace`，不上传任何内容
+- 敏感字段（窗口标题、日记内容）使用 Windows DPAPI 加密存储
+- 可选内核驱动仅在你明确同意后安装，用于读取 CPU 温度
+
+## 技术栈
+
+| 模块 | 说明 |
+| --- | --- |
+| `crates/core` | Rust 核心：Win32 监控、硬件读取、SQLite 存储、安全加密 |
+| `src-tauri` | Tauri 2 应用外壳：窗口、托盘、系统集成 |
+| `frontend` | Next.js 前端：仪表盘与全部页面 UI |
+
+## 构建
+
+### 环境要求
+
+- Windows 10/11
+- [Rust 工具链](https://rustup.rs/)
+- [Node.js](https://nodejs.org/)（≥ 22）
+- Visual Studio 2022 生成工具（C++ 桌面开发工作负载）
+
+### 命令
+
+```bash
+# 1) Rust 测试（workspace 全绿）
+cargo test --workspace
+
+# 2) 前端类型检查 + 构建（产物输出到 frontend/dist，会被嵌入 exe）
+cd frontend
+npm ci
+npx tsc --noEmit
+npm run build
+cd ..
+
+# 3) Windows Release 构建（自动嵌入前端产物）
+cd src-tauri && cargo build --release
+# 产物：target/release/timetrace.exe
+```
+
+## 许可证
+
+[GNU General Public License v3.0](LICENSE)
+
+致谢与第三方声明（TimeTrace MIT、THRM MIT、内置字体）见 [NOTICE.md](NOTICE.md)。

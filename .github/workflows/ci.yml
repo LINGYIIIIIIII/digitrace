@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Rust 核心 + 应用：测试 / lint / 格式 / 依赖漏洞
+  rust-checks:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Workspace tests
+        run: cargo test --workspace
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Dependency audit
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # 前端：类型检查 + 生产构建（产物输出到 frontend/dist，供 tauri 嵌入）
+  frontend:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Production build
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 1
+
+  # 真实打包：Rust release 构建（嵌入前端产物，产出单文件 exe）
+  tauri-build:
+    runs-on: windows-latest
+    needs: frontend
+    env:
+      RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - name: Build release exe
+        run: cargo build --release
+        working-directory: src-tauri
+      - uses: actions/upload-artifact@v4
+        with:
+          name: timetrace-exe
+          path: target/release/timetrace.exe

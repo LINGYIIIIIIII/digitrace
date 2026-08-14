@@ -1,0 +1,467 @@
+{
+  "appShell": {
+    "tabs": {
+      "dashboard": "仪表盘",
+      "usage": "应用使用统计",
+      "calendar": "日历",
+      "network": "网络监控",
+      "health": "健康提醒",
+      "hardware": "硬件监控",
+      "settings": "设置",
+      "about": "关于"
+    },
+    "titleBar": {
+      "minimize": "最小化",
+      "maximize": "最大化",
+      "restore": "还原",
+      "close": "关闭"
+    },
+    "status": {
+      "monitoring": "监控中",
+      "paused": "已暂停",
+      "trayRunning": "托盘运行",
+      "todayActive": "今日活跃",
+      "todayIdle": "今日空闲"
+    },
+    "sidebar": {
+      "collapse": "收起侧边栏",
+      "expand": "展开侧边栏"
+    },
+    "bridgeWarning": {
+      "closeAria": "关闭提示"
+    }
+  },
+  "placeholder": {
+    "developing": "开发中",
+    "dashboardTitle": "仪表盘",
+    "dashboardDescription": "应用使用时长统计、应用分布、小时分布与日历热力将在这里展示。",
+    "calendarTitle": "日历",
+    "calendarDescription": "按月查看使用记录，支持年份跳转与中文星期。",
+    "networkTitle": "网络监控",
+    "networkDescription": "实时速率曲线与历史统计将在这里展示。",
+    "settingsTitle": "设置",
+    "settingsDescription": "监控开关、自动刷新、字体、日志路径与卸载入口将在这里提供。"
+  },
+  "common": {
+    "cancel": "取消",
+    "save": "保存"
+  },
+  "dashboard": {
+    "range": {
+      "today": "今天",
+      "yesterday": "昨天",
+      "week": "本周",
+      "month": "本月"
+    },
+    "edit": "编辑",
+    "templateTitle": "模板",
+    "templates": {
+      "balanced": "均衡型",
+      "compact": "紧凑型",
+      "showcase": "展示型",
+      "classic": "经典型"
+    },
+    "aggBadge": "聚合",
+    "aggregateHint": "聚合卡会把多张卡片合并到同一张卡里：启用聚合卡后，组成它的单独小卡会自动隐藏（例如「硬件聚合」与「温度聚合」二选一）。",
+    "moveUp": "上移",
+    "moveDown": "下移",
+    "cardSize": {
+      "sm": "小 (1/3)",
+      "md": "中 (2/3)",
+      "lg": "大 (整行)"
+    },
+    "editTitle": "编辑仪表盘",
+    "editDescription": "拖动方块换位置，拖右下角手柄调整大小，点眼睛隐藏卡片。",
+    "hideCard": "隐藏卡片",
+    "resizeHint": "拖动方块换位置 · 拖右下角手柄调整大小（小 / 中 / 大）",
+    "hiddenCards": "已隐藏的卡片（点击恢复）",
+    "emptyGrid": "所有卡片都已隐藏，可在下方恢复",
+    "resetLayout": "恢复默认",
+    "cards": {
+      "stats": "统计卡",
+      "appUsage": "应用统计",
+      "netApps": "网络流量",
+      "hourly": "小时分布",
+      "calendar": "日历",
+      "networkStats": "网络统计",
+      "networkLive": "实时速率曲线",
+      "attrUsage": "按应用流量",
+      "hardwareGauges": "硬件表盘",
+      "diskTemp": "磁盘温度",
+      "health": "健康提醒",
+      "durationAgg": "时长聚合",
+      "netAgg": "网络聚合",
+      "hwAgg": "硬件聚合",
+      "tempAgg": "温度聚合"
+    },
+    "cardsDesc": {
+      "stats": "活跃 / 空闲 / 应用数",
+      "appUsage": "应用使用时长柱状图与明细",
+      "netApps": "实时统计有 TCP 连接的应用",
+      "hourly": "全天小时分布曲线",
+      "calendar": "月历热力与当日详情",
+      "networkStats": "实时速率与本次会话累计",
+      "networkLive": "下载 / 上传实时曲线",
+      "attrUsage": "Windows 官方按应用流量（约小时级更新）",
+      "hardwareGauges": "CPU / GPU / 内存表盘",
+      "diskTemp": "磁盘温度列表",
+      "health": "连续使用 / 下次提醒",
+      "durationAgg": "统计卡 + 小时分布",
+      "netAgg": "网络统计 + 实时曲线",
+      "hwAgg": "硬件表盘 + 磁盘温度",
+      "tempAgg": "CPU / GPU / 磁盘温度"
+    },
+    "stats": {
+      "active": "活跃时长",
+      "idle": "空闲时长",
+      "apps": "使用应用"
+    },
+    "appUsage": {
+      "title": "按应用统计"
+    },
+    "netApps": {
+      "title": "按应用网络流量"
+    },
+    "hourly": {
+      "title": "小时分布",
+      "activeLabel": "活跃时长"
+    },
+    "calendar": {
+      "active": "活跃时长",
+      "sessions": "会话数"
+    },
+    "empty": "暂无使用数据 — 开始使用应用后将自动记录。",
+    "loadFailed": "数据加载失败",
+    "retry": "重试"
+  },
+  "usage": {
+    "title": "应用使用统计",
+    "total": "总活跃",
+    "loading": "加载中…",
+    "activeLabel": "活跃时长",
+    "chart": {
+      "bar": "应用使用时长（前 10）",
+      "pie": "应用占比",
+      "hourly": "全天小时分布"
+    },
+    "noDetail": "该应用没有更多详情。"
+  },
+  "calendar": {
+    "prevYear": "上一年",
+    "nextYear": "下一年",
+    "prevMonth": "上个月",
+    "nextMonth": "下个月",
+    "active": "活跃时长",
+    "idle": "空闲时长",
+    "sessions": "会话数",
+    "sessionList": "会话记录",
+    "today": "今天",
+    "monthView": "月视图",
+    "yearView": "年视图"
+  },
+  "network": {
+    "download": "下载",
+    "upload": "上传",
+    "sessionDownload": "累计下载",
+    "sessionUpload": "累计上传",
+    "liveTitle": "实时速率",
+    "historyTitle": "历史速率",
+    "avg": "平均",
+    "max": "峰值",
+    "noHistory": "暂无历史数据",
+    "statsTitle": "流量统计",
+    "totalDownload": "累计下载",
+    "totalUpload": "累计上传",
+    "peakDownload": "峰值下载",
+    "peakUpload": "峰值上传",
+    "activeDays": "有数据 {{count}} 天",
+    "dailyAvg": "日均流量 {{value}}",
+    "dailyTitle": "每日流量",
+    "hourlyTitle": "小时流量",
+    "rangeDays": "近 {{days}} 天",
+    "range": {
+      "24h": "24h",
+      "today": "今日",
+      "session": "本次启动",
+      "7d": "近 7 天",
+      "30d": "近 30 天"
+    },
+    "appTraffic": "按应用流量",
+    "appFlow": "流量",
+    "appTrafficEmpty": "暂无应用联网数据 — 实时统计有 TCP 连接的应用",
+    "appTotal": "累计",
+    "appActive": "活跃",
+    "bytesHint": "字节级流量需管理员权限（微软系统限制），当前自动改为按 TCP 连接数统计。",
+    "attrTitle": "按应用流量（Windows 官方数据）",
+    "attrToday": "今日",
+    "attrRefresh": "刷新",
+    "attrLoading": "正在读取 Windows 流量记录…",
+    "attrEmpty": "该时间段暂无应用流量记录（Windows 官方记账，通常滞后约 1 小时）",
+    "attrUnavailable": "当前系统无法提供按应用流量数据（可能无网络连接或系统不支持）。",
+    "attrUnknown": "未归属流量",
+    "attrHint": "数据来源：Windows 数据使用量（免管理员）· {{since}} ~ {{until}} · 非实时，约小时级更新"
+  },
+  "hardware": {
+    "title": "硬件监控",
+    "description": "CPU、内存、磁盘等硬件监控功能将在后续版本提供。",
+    "comingSoon": "即将推出",
+    "cpu": "CPU 使用率",
+    "memory": "内存使用率",
+    "disks": "磁盘",
+    "cpuTemp": "CPU 温度",
+    "gpuTemp": "GPU 温度",
+    "diskTemp": "磁盘温度",
+    "cpuPct": "CPU 使用率 (%)",
+    "memPct": "内存使用率 (%)",
+    "cpuTempLine": "CPU 温度 (°C)",
+    "gpuTempLine": "GPU 温度 (°C)",
+    "liveTitle": "实时曲线",
+    "liveHint": "实时刷新间隔 {{seconds}} 秒（可在 设置 → 常规 → 实时数据刷新间隔 调整）",
+    "usageLabel": "占用 {{pct}}%",
+    "avgTempHint": "平均温度 = 各核心温度平均（共 {{cores}} 核）",
+    "packageTemp": "封装温度",
+    "core": "核心",
+    "tempUnavailable": "CPU 温度暂不可用",
+    "restartElevated": "以管理员身份重启",
+    "installDriver": "安装内核驱动",
+    "gpuNotFound": "未检测到 NVIDIA 显卡（GPU 温度仅支持 NVIDIA）",
+    "diskTempHint": "磁盘温度来自 Windows 存储接口：多数 NVMe 固态在管理员权限下才能读到数值，读不到时显示 —。",
+    "diskHealth": "磁盘健康",
+    "diskHealthRefresh": "刷新",
+    "diskHealthHint": "健康状态一般免管理员可读；温度、磨损、通电时长与读写错误等可靠性数据在管理员权限下更完整。",
+    "wear": "磨损",
+    "powerOnHours": "通电时长",
+    "readErrors": "读取错误",
+    "writeErrors": "写入错误",
+    "health": {
+      "Healthy": "正常",
+      "Warning": "警告",
+      "Unhealthy": "异常",
+      "Unknown": "未知"
+    },
+    "driverConfirmTitle": "安装内核驱动？",
+    "driverConfirmDescription": "内核驱动会写入系统底层并需要管理员权限，部分安全软件（如 360）可能拦截。若 THRM 等软件已安装过，数迹会直接复用、不重复安装。",
+    "cancel": "取消",
+    "available": "可用",
+    "loading": "加载中…",
+    "loadFailed": "硬件信息加载失败"
+  },
+  "settings": {
+    "tabs": {
+      "general": "常规",
+                  "appearance": "外观",
+                  "startup": "启动与托盘",
+                  "hardware": "硬件",
+                  "update": "更新",
+      "logs": "日志与数据"
+    },
+    "titlebar": {
+      "title": "顶栏显示",
+      "monitoring": "监控状态",
+      "tray": "托盘运行",
+      "active": "今日活跃时长",
+      "idle": "今日空闲时长"
+    },
+    "section": {
+      "monitor": "监控",
+      "refresh": "自动刷新",
+      "appearance": "外观",
+      "startup": "启动与托盘",
+      "logs": "日志",
+      "data": "数据"
+    },
+    "monitor": {
+      "autoTrack": "开机自动追踪",
+      "autoTrackDescription": "启动后自动开始统计应用使用时长。",
+      "pollInterval": "采样间隔",
+      "pollIntervalDescription": "后台监控采样的频率。",
+      "idleThreshold": "空闲判定阈值",
+      "idleThresholdDescription": "超过该时长无操作视为空闲。"
+    },
+    "refresh": {
+      "interval": "数据刷新间隔",
+      "intervalDescription": "仪表盘与顶栏实时数据的刷新频率（顶栏今日活跃/空闲跟随此间隔）。",
+      "liveInterval": "实时数据刷新间隔",
+      "liveIntervalDescription": "硬件监控与网络监控实时曲线的刷新频率（选 1 秒更顺滑，占用略高）。"
+    },
+    "timezone": {
+      "title": "日期时区",
+      "description": "「今日 / 本周 / 本月」与历史窗口按此时区计算日期边界。",
+      "system": "跟随系统",
+      "utc8": "东八区 (GMT+8)"
+    },
+    "theme": {
+      "title": "界面主题",
+      "description": "切换亮色 / 暗色 / 跟随系统。",
+      "system": "跟随系统",
+      "light": "亮色",
+      "dark": "暗色"
+    },
+    "blur": {
+      "title": "窗口材质",
+      "description": "选择窗口背景材质，修改后重启生效。",
+      "auto": "自动",
+      "mica": "云母",
+      "acrylic": "亚克力",
+      "tabbed": "云母 Alt",
+      "off": "关闭",
+      "manualRestartNotice": "窗口材质已保存，重启应用后生效",
+      "restartTitle": "窗口材质已更改",
+      "restartDescription": "新的窗口材质需要重启应用才能生效，是否立即重启？",
+      "restartNow": "立即重启",
+      "restartLater": "稍后"
+    },
+    "font": {
+      "title": "界面字体",
+      "description": "选择界面使用的字体，立即生效。",
+      "system": "系统默认",
+                                  "harmonyos": "鸿蒙黑体",
+                                  "noto": "思源黑体",
+                                  "misans": "MiSans"
+                              },
+    "zoom": {
+      "title": "界面缩放",
+      "description": "整体缩放界面（字体、卡片、图表等比），拖动时顶部显示百分比。"
+    },
+    "uiTuner": {
+      "title": "UI 调试面板",
+      "description": "在右下角显示调试滑块，可实时调整卡片圆角、间距、内边距与标题字号。"
+    },
+    "devTools": {
+      "title": "开发者工具",
+      "description": "打开浏览器开发者工具：点选界面元素即可实时查看和调整样式（UI 调试用）。",
+      "open": "打开"
+    },
+    "language": {
+      "title": "界面语言",
+      "description": "切换界面语言，立即生效并自动记住。"
+    },
+    "startup": {
+      "autoStart": "开机自启动",
+      "autoStartDescription": "登录 Windows 后自动在后台启动（托盘运行）。",
+      "enabled": "已开启开机自启动",
+      "disabled": "已关闭开机自启动",
+      "failed": "自启动设置失败",
+      "elevated": "开机自启以管理员权限运行",
+      "elevatedDescription": "通过 Windows 计划任务以最高权限静默启动，开机即可读取 CPU 温度等硬件数据；首次开启需通过一次 UAC 授权",
+      "elevatedEnabled": "已开启管理员自启（下次登录生效）",
+      "elevatedDisabled": "已关闭管理员自启",
+      "elevatedFailed": "设置管理员自启失败（可能取消了 UAC 授权）",
+      "minimizeToTray": "关闭时最小化到托盘",
+      "minimizeToTrayDescription": "点击关闭按钮时隐藏到托盘，进程继续后台运行。",
+      "launchShowWindow": "启动显示主界面",
+      "launchShowWindowDescription": "启动应用时显示主窗口，关闭则驻留托盘。开机自启固定静默驻留托盘；重启、更新或重装后总是展开主窗口。"
+    },
+    "tray": {
+      "title": "托盘显示",
+      "cpu": "CPU 占用",
+      "memory": "内存占用",
+                                  "network": "实时网速",
+                                  "active": "今日活跃",
+                                  "temp": "温度",
+                                  "hint": "数据行显示在鼠标悬停提示中（首行为版本号）；右键菜单仅保留操作项，版本号固定在末尾。"
+                              },
+                     "hardware": {
+                                  "driverTitle": "内核驱动（可选）",
+                                  "driverStatus": "PawnIO 驱动状态",
+                                  "statusRunning": "已安装 v{{version}} · 运行中（与其他软件共用）",
+                                  "statusStopped": "已安装 v{{version}} · 未运行",
+                                  "statusNotInstalled": "未安装",
+                                  "install": "安装内核驱动",
+                                  "uninstall": "卸载内核驱动",
+                                  "driverRisk": "风险与取舍：CPU 温度需要读取 CPU 寄存器（MSR），Windows 要求以管理员权限配合内核驱动才能读取。安装前请确认你了解：驱动会写入系统底层、需要管理员权限、可能被安全软件（如 360）拦截；不安装的代价只是看不到 CPU 温度，其余功能不受影响。若 THRM 等软件已安装过该驱动，数迹直接复用，不会重复安装。",
+                                  "tempTitle": "温度说明",
+                                  "tempDescription": "GPU 温度：免管理员（NVML）。磁盘温度：Windows 存储接口，尽力而为，多数需要管理员。CPU 温度：需要 PawnIO 内核驱动 + 以管理员身份运行数迹；以管理员身份重启后即可读取，无需每次都以管理员启动，平时仍可普通模式运行。",
+                                  "installTitle": "确认安装内核驱动？",
+                                  "installDescription": "将启动 PawnIO 官方安装程序（需要管理员权限）。安装过程中可能弹出系统安全提示或被 360 等软件拦截，请按提示放行。安装后回到本页即可看到状态变为「运行中」。",
+                                  "uninstallTitle": "确认卸载内核驱动？",
+                                  "uninstallDescription": "卸载后 CPU 温度将不可用。注意：THRM 等其他软件可能正在使用该驱动，卸载前请确认。",
+                                  "cancel": "取消"
+                              },
+    "logs": {
+      "path": "运行日志文件路径",
+      "dataLocation": "数据存储位置",
+      "dataLocationDescription": "使用时长、网络与配置数据均保存在此目录（仅本机，不上传）"
+    },
+    "data": {
+      "clearTitle": "清除所有数据",
+      "clearDescription": "删除本机保存的全部使用记录与监控数据。",
+      "clear": "清除数据",
+      "confirmTitle": "确认清除所有数据？",
+      "confirmDescription": "此操作不可恢复，将删除全部使用时长、日历与网络记录。",
+      "cancel": "取消",
+      "confirmClear": "确认清除",
+      "cleared": "数据已清除",
+      "clearFailed": "清除失败，请稍后重试",
+      "exportTitle": "导出明文备份",
+      "exportDescription": "把日记与窗口标题解密后导出为 JSON 文件（含明文，请妥善保管，通常用于重装系统前备份）。",
+      "export": "导出明文",
+      "exported": "明文备份已导出",
+      "exportFailed": "导出失败",
+      "openFolder": "打开位置"
+    },
+    "update": {
+      "autoCheck": "自动检查更新",
+      "autoCheckDescription": "启动后自动检查新版本（每天最多一次）。",
+      "manifestUrl": "更新清单地址",
+      "manifestUrlDescription": "JSON 格式：{ version, url, sha256, notes }。地址必须为 HTTPS，文件会做 SHA-256 校验。",
+      "hint": "更新下载到本机后校验哈希，校验失败会拒绝安装；覆盖前旧程序会自动退出。",
+      "statusNoUrl": "当前未配置更新地址，不会进行任何联网检查。",
+      "statusAutoOn": "已启用自动检查（每天最多一次联网）。",
+      "statusAutoOff": "自动检查已关闭，仅手动点「检查更新」时才会联网。"
+    }
+  },
+  "about": {
+    "ack": {
+      "title": "致谢",
+      "timetrace": "数据采集与存储的技术基础（MIT 协议）",
+      "thrm": "界面框架与交互设计参考（开源项目）"
+    },
+    "privacy": "隐私",
+    "privacyDescription": "所有数据仅保存在本机 %APPDATA%\\TimeTrace，不上传任何云端。",
+    "credits": "数迹（Digitrace）—— 我们共同开发的独立项目",
+    "update": {
+      "title": "检查更新",
+      "check": "检查更新",
+      "checking": "检查中…",
+      "checkFailed": "检查失败",
+      "found": "发现新版本 v{{version}}",
+      "download": "下载并更新",
+      "downloading": "下载中…",
+      "installing": "下载完成，正在安装…",
+      "latest": "已是最新版本",
+      "failed": "更新失败"
+    }
+  },
+  "takeover": {
+    "title": "检测到新版本 v{{version}}",
+    "description": "是否退出当前版本并启动新版本？",
+    "elevatedHint": "新版本将以管理员身份启动，点击「立即切换」后请在弹出的系统安全提示中点「是」。",
+    "switchNow": "立即切换",
+    "later": "稍后",
+    "showWindow": "切换后打开主界面"
+  },
+  "health": {
+    "streak": "当前连续使用",
+    "nextReminder": "距下次提醒",
+    "remindersToday": "今日已提醒",
+    "idle": "当前状态",
+    "using": "使用中",
+    "away": "已离开（休息中）",
+    "enable": "启用健康提醒",
+    "enableDescription": "连续使用电脑达到设定时间后，弹出 Windows 通知提醒你起来活动。",
+    "reminderInterval": "提醒间隔",
+    "breakThreshold": "离开多久算休息（重新计时）",
+    "minutes": "{{minutes}} 分钟",
+    "test": "立即测试通知",
+    "testing": "发送中…",
+    "testOk": "测试通知已发送",
+    "testFailed": "发送失败",
+    "lastReminder": "上次提醒 {{time}}",
+    "hint": "健康提醒完全在本机运行：通过键盘/鼠标活动判断连续使用时长，数据不会上传。"
+  },
+  "fatalError": {
+    "title": "启动失败",
+    "retry": "重试"
+  }
+}
