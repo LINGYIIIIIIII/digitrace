@@ -1,0 +1,13 @@
+[package]
+name = "metrics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared-memory realtime metrics publisher/reader (language-agnostic, zero-copy)"
+
+[dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Storage_FileSystem",
+    "Win32_System_Memory",
+    "Win32_Foundation",
+] }

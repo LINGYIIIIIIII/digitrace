@@ -227,6 +227,19 @@ fn main() {
             app.manage(tray_state);
             crate::tray::spawn_updater(app.handle().clone());
 
+            // 共享内存实时指标发布：1Hz，外部工具可零拷贝读取（见 crates/metrics/metrics.h）。
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || loop {
+                    if let Some(state) = handle.try_state::<AppState>() {
+                        if let Ok(mut api) = state.api.lock() {
+                            api.publish_metrics();
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                });
+            }
+
             Ok(())
         })
         // 关闭窗口时隐藏到托盘，进程继续后台运行；托盘菜单「退出」才真正退出。

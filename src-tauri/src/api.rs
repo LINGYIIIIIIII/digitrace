@@ -282,6 +282,8 @@ pub struct TimeTraceApi {
     net_apps: std::sync::Mutex<timetrace_core::NetAppMonitor>,
     /// 缓存的进程表（get_net_apps 每 2 秒复用，避免频繁大块分配）。
     etw_sys: std::sync::Mutex<Option<sysinfo::System>>,
+    /// 共享内存实时指标发布方（供外部工具零拷贝读取）。
+    metrics: Option<metrics::MetricsPublisher>,
 }
 
 impl TimeTraceApi {
@@ -328,6 +330,7 @@ impl TimeTraceApi {
             temperature: std::sync::Mutex::new(temperature),
             net_apps: std::sync::Mutex::new(net_apps),
             etw_sys: std::sync::Mutex::new(None),
+            metrics: metrics::MetricsPublisher::open(),
         };
         Ok(api)
     }
@@ -808,6 +811,56 @@ impl TimeTraceApi {
             }
         }
         0
+    }
+
+    /// 采集并发布实时指标到共享内存（供外部工具/其它语言零拷贝读取）。
+    pub fn publish_metrics(&mut self) {
+        let Some(publisher) = self.metrics.as_mut() else {
+            return;
+        };
+        let (cpu, mem_used_mb, mem_percent) = {
+            let mut hw = self.hardware.lock().unwrap_or_else(|p| p.into_inner());
+            let s = hw.snapshot();
+            let used = s.memory_used_bytes as f64;
+            let total = (s.memory_total_bytes.max(1)) as f64;
+            (s.cpu_percent, used / 1_048_576.0, used / total * 100.0)
+        };
+        let (cpu_temp, gpu_usage, gpu_temp) = {
+            let mut t = self.temperature.lock().unwrap_or_else(|p| p.into_inner());
+            let s = t.snapshot();
+            let gpu = s.gpus.first();
+            (
+                s.cpu.temp_celsius.unwrap_or(-1.0),
+                gpu.and_then(|g| g.usage_percent).unwrap_or(-1.0),
+                gpu.and_then(|g| g.temp_celsius).unwrap_or(-1.0),
+            )
+        };
+        let (down, up) = {
+            let s = self.monitor_core.network_snapshot();
+            (
+                s.download_bytes_per_sec as f64,
+                s.upload_bytes_per_sec as f64,
+            )
+        };
+        let active_app = DataStore::get_active_session(&*self.db)
+            .filter(|s| !s.is_idle)
+            .map(|s| s.app_name)
+            .unwrap_or_default();
+
+        let mut snap = metrics::MetricsSnapshot {
+            cpu_total_percent: cpu,
+            cpu_temp_c: cpu_temp,
+            gpu_usage_percent: gpu_usage,
+            gpu_temp_c: gpu_temp,
+            mem_used_mb,
+            mem_percent,
+            net_down_bps: down,
+            net_up_bps: up,
+            fps: -1.0, // 帧率预留，未实现
+            ..metrics::MetricsSnapshot::default()
+        };
+        snap.set_active_app(&active_app);
+        publisher.publish(snap);
     }
 
     /// Apps active within a specific hour of a date (seconds per app).

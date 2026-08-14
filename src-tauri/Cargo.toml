@@ -1,6 +1,6 @@
 [package]
 name = "timetrace"
-version = "2.24.1"
+version = "2.25.0"
 edition = "2021"
 description = "数迹"
 
@@ -31,3 +31,4 @@ windows = { version = "0.61.3", features = ["Networking_Connectivity"] }
 sha2 = "0.10"
 sysinfo.workspace = true
 timetrace-core = { path = "../crates/core" }
+metrics = { path = "../crates/metrics" }
