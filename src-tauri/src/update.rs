@@ -392,6 +392,11 @@ pub fn evaluate_update() -> UpdateCheckDto {
                 dto.message = Some("更新清单缺少 sha256 字段，已拒绝（安全要求）".to_string());
                 return dto;
             }
+            // 检查阶段即校验下载地址协议，避免「提示可更新但下载必失败」的割裂体验。
+            if !m.url.starts_with("https://") {
+                dto.message = Some("更新包地址必须使用 HTTPS（安全要求）".to_string());
+                return dto;
+            }
             dto.latest_version = m.version.clone();
             dto.url = m.url;
             dto.sha256 = m.sha256;

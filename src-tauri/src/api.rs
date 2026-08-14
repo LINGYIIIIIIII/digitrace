@@ -291,8 +291,8 @@ impl TimeTraceApi {
     pub fn create(db_path: String) -> Result<TimeTraceApi> {
         setup_logging();
         timetrace_core::oplog::install_panic_hook();
-        timetrace_core::oplog::log_event("APP", "TimeTrace bridge 启动");
-        tracing::info!("TimeTrace bridge starting, db={}", db_path);
+        timetrace_core::oplog::log_event("APP", "数迹后端启动");
+        tracing::info!("数迹后端启动, db={}", db_path);
         // 自愈自启记录：旧版本路径迁移到当前 exe、清理遗留值名。
         timetrace_core::heal_autostart();
         let db = Arc::new(SqliteStore::open(PathBuf::from(&db_path))?);
@@ -1195,7 +1195,7 @@ pub fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
         .spawn();
     tracing::info!("restart helper spawned: {:?}", spawned.is_ok());
     if spawned.is_err() {
-        return Err(format!("无法启动重启器: {}", spawned.err().unwrap()));
+        return Err(format!("无法启动重启器：{e}", e = spawned.err().unwrap()));
     }
     app.exit(0);
     Ok(())

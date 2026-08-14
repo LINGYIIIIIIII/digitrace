@@ -40,7 +40,8 @@
     "networkTitle": "网络监控",
     "networkDescription": "实时速率曲线与历史统计将在这里展示。",
     "settingsTitle": "设置",
-    "settingsDescription": "监控开关、自动刷新、字体、日志路径与卸载入口将在这里提供。"
+    "settingsDescription": "监控开关、自动刷新、字体、日志路径与卸载入口将在这里提供。",
+    "aboutTitle": "关于"
   },
   "common": {
     "cancel": "取消",
@@ -203,7 +204,7 @@
   },
   "hardware": {
     "title": "硬件监控",
-    "description": "CPU、内存、磁盘等硬件监控功能将在后续版本提供。",
+    "description": "CPU 占用、内存使用率、CPU/GPU 温度与磁盘健康实时监控（温度数据在管理员权限下更完整）。",
     "comingSoon": "即将推出",
     "cpu": "CPU 使用率",
     "memory": "内存使用率",

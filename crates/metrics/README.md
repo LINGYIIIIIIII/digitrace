@@ -39,7 +39,7 @@ if (hdr->magic == METRICS_MAGIC && hdr->version == METRICS_VERSION) {
 
 ## Rust 侧
 
-- 发布方：`metrics::MetricsPublisher::open()` + `publish(snapshot)`（数迹主程序每秒发布）
+- 发布方：`metrics::MetricsPublisher::open()` + `publish(snapshot)`（数迹主程序 / digitrace-monitor 每秒发布）
 - 读取方：`metrics::MetricsReader::open()` + `read()`（外部 Rust 工具）
 
 ## 历史数据

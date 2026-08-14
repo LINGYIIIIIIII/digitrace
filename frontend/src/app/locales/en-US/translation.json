@@ -166,7 +166,7 @@
     "sessionDownload": "Session download",
     "sessionUpload": "Session upload",
     "liveTitle": "Live speed",
-    "historyTitle": "History",
+    "historyTitle": "Rate history",
     "avg": "Average",
     "max": "Peak",
     "noHistory": "No history yet",
@@ -204,7 +204,7 @@
   },
   "hardware": {
     "title": "Hardware monitor",
-    "description": "CPU, memory and disk monitoring will be available in a future version.",
+    "description": "Real-time CPU usage, memory usage, CPU/GPU temperature and disk health monitoring (temperature data is more complete with administrator rights).",
     "comingSoon": "Coming soon",
     "cpu": "CPU usage",
     "memory": "Memory usage",

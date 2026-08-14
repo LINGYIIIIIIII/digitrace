@@ -189,10 +189,10 @@ fn build_lines() -> Vec<(String, String)> {
     let reader = READER.lock().unwrap();
     let Some(r) = reader.as_ref() else {
         return vec![
-            ("状态".to_string(), "数迹未运行".to_string()),
+            ("状态".to_string(), "未检测到监控数据".to_string()),
             (
                 "提示".to_string(),
-                "请启动数迹完整版，或把本程序与独立监控\n放在同一目录后重开。".to_string(),
+                "请确认 digitrace-monitor.exe 与本程序位于\n同一目录后重新打开。".to_string(),
             ),
         ];
     };
@@ -215,7 +215,7 @@ fn build_lines() -> Vec<(String, String)> {
             if s.fps >= 0.0 {
                 format!("{:.0} fps", s.fps)
             } else {
-                "未实现".to_string()
+                "—".to_string()
             },
         ),
         ("前台应用".to_string(), s.active_app_str().to_string()),
@@ -250,11 +250,26 @@ fn paint(hwnd: HWND) {
             TextOutW(hdc, 150, y, v.as_ptr(), v.len() as i32);
         }
 
-        // 底部状态（seq + 时间戳）
+        // 底部状态：本地时间 + 数据新鲜度（超过 5 秒未刷新提示已过期）。
         let footer = {
             let reader = READER.lock().unwrap();
             match reader.as_ref().and_then(|r| r.read()) {
-                Some(s) => format!("seq {} · 更新于 {} ms", s.seq, s.timestamp_ms),
+                Some(s) => {
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as i64)
+                        .unwrap_or(0);
+                    let secs = s.timestamp_ms.div_euclid(1000);
+                    let h = secs.div_euclid(3600) % 24;
+                    let m = secs.div_euclid(60) % 60;
+                    let sec = secs % 60;
+                    let stale = if now_ms - s.timestamp_ms > 5000 {
+                        " · 数据已过期"
+                    } else {
+                        ""
+                    };
+                    format!("更新于 {h:02}:{m:02}:{sec:02}{stale}")
+                }
                 None => "共享内存未就绪".to_string(),
             }
         };

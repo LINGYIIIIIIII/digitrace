@@ -18,6 +18,8 @@
 - **网络监控** — 实时下载/上传速率曲线、24h/今日/本次启动/近 7 天/近 30 天历史、按应用流量（Windows 官方接口，免管理员）
 - **硬件监控** — CPU/GPU 占用与温度、内存、磁盘温度（可选内核驱动读取 CPU 寄存器，默认不安装）
 - **健康提醒** — 连续使用检测，Windows 原生通知，状态跨重启保留
+- **独立监控 + Lite 查看器** — `digitrace-monitor` 无界面常驻采集写共享内存；`metrics-viewer`
+  轻量查看器（约 240KB，零依赖 Win32）双击即看实时指标，完整版不运行时也可独立使用
 - **系统托盘** — 实时数据行、显示内容可配置、版本号
 - **界面** — 无边框玻璃材质、主题/字体/中英日三语、整体无极缩放（75%–175%）、深色浅色
 
@@ -32,6 +34,9 @@
 | 模块 | 说明 |
 | --- | --- |
 | `crates/core` | Rust 核心：Win32 监控、硬件读取、SQLite 存储、安全加密 |
+| `crates/metrics` | 共享内存实时指标：语言无关发布/读取（C 头文件 `metrics.h`） |
+| `crates/monitor` | 独立监控进程 `digitrace-monitor`：无界面常驻采集，写共享内存 |
+| `crates/metrics-viewer` | Lite 查看器 `digitrace-lite-viewer`：零依赖 Win32，读共享内存显示 |
 | `src-tauri` | Tauri 2 应用外壳：窗口、托盘、系统集成 |
 | `frontend` | Next.js 前端：仪表盘与全部页面 UI |
 

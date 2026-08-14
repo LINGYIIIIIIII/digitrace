@@ -307,7 +307,7 @@ fn main() {
             api::mark_ui_ready,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building 数迹")
+        .expect("数迹应用构建失败")
         .run(|app, event| {
             // 退出前清理通知气泡图标，避免托盘残留「幽灵图标」。
             if let tauri::RunEvent::Exit = event {
