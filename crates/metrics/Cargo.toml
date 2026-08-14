@@ -9,5 +9,6 @@ description = "Shared-memory realtime metrics publisher/reader (language-agnosti
 windows-sys = { version = "0.61", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_Memory",
+    "Win32_Security",
     "Win32_Foundation",
 ] }

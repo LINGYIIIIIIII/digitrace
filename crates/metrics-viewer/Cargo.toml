@@ -1,0 +1,19 @@
+[package]
+name = "metrics-viewer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Lite realtime metrics viewer — zero-dep Win32/GDI, reads shared memory, no WebView"
+
+[[bin]]
+name = "metrics-viewer"
+path = "src/main.rs"
+
+[dependencies]
+metrics = { path = "../metrics" }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_LibraryLoader",
+] }

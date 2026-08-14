@@ -338,8 +338,10 @@ mod tests {
         let path = dir.join("metrics.map");
 
         let mut pub_ = MetricsPublisher::open_at(&path).expect("open publisher");
-        let mut snap = MetricsSnapshot::default();
-        snap.cpu_total_percent = 42.5;
+        let mut snap = MetricsSnapshot {
+            cpu_total_percent: 42.5,
+            ..Default::default()
+        };
         snap.net_down_bps = 1234.0;
         snap.set_active_app("Visual Studio Code");
         pub_.publish(snap);

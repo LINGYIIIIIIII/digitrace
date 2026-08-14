@@ -1038,6 +1038,13 @@ pub struct MemoryStore {
 #[cfg(test)]
 impl MemoryStore {
     pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[cfg(test)]
+impl Default for MemoryStore {
+    fn default() -> Self {
         Self {
             sessions: Mutex::new(Vec::new()),
             summaries: Mutex::new(Vec::new()),
@@ -1423,8 +1430,8 @@ mod sqlite_tests {
         let path =
             std::env::temp_dir().join(format!("tt_sqlite_test_{}_{}.db", std::process::id(), n));
         let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(&format!("{}-wal", path.display()));
-        let _ = std::fs::remove_file(&format!("{}-shm", path.display()));
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
         SqliteStore::open(path).unwrap()
     }
 

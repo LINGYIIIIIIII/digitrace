@@ -244,11 +244,34 @@ fn fetch_github_release(repo: &str) -> Result<GhRelease, String> {
     serde_json::from_slice(&out.stdout).map_err(|e| format!("GitHub Release 数据格式错误：{e}"))
 }
 
-/// 取 Release 里的安装包附件：第一个 `.exe` 结尾的资源。
+/// 取 Release 里的安装包附件：优先选择与当前程序同名的 `.exe`；
+/// 排除 viewer / lite / update / setup / installer 等非主程序附件。
 fn pick_exe_asset(rel: &GhRelease) -> Option<&GhAsset> {
-    rel.assets
+    let current = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()));
+    let candidates: Vec<&GhAsset> = rel
+        .assets
         .iter()
-        .find(|a| a.name.to_ascii_lowercase().ends_with(".exe"))
+        .filter(|a| {
+            let n = a.name.to_ascii_lowercase();
+            n.ends_with(".exe")
+                && !n.contains("viewer")
+                && !n.contains("lite")
+                && !n.contains("update")
+                && !n.contains("setup")
+                && !n.contains("installer")
+        })
+        .collect();
+    if let Some(cur) = &current {
+        if let Some(asset) = candidates
+            .iter()
+            .find(|a| a.name.to_ascii_lowercase() == *cur)
+        {
+            return Some(asset);
+        }
+    }
+    candidates.first().copied()
 }
 
 /// 取 Release 里的 SHA-256 校验附件（`*.sha256` 或 `*.sha256.txt`），内容为 64 位十六进制。
