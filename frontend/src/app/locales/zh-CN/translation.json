@@ -405,8 +405,10 @@
       "autoCheckDescription": "启动后自动检查新版本（每天最多一次）。",
       "manifestUrl": "更新清单地址",
       "manifestUrlDescription": "JSON 格式：{ version, url, sha256, notes }。地址必须为 HTTPS，文件会做 SHA-256 校验。",
+      "githubRepo": "GitHub 仓库（更新源）",
+      "githubRepoDescription": "直接读取公开仓库的最新 Release 进行更新（类似 THRM），优先于清单地址。格式：所有者/仓库名。",
       "hint": "更新下载到本机后校验哈希，校验失败会拒绝安装；覆盖前旧程序会自动退出。",
-      "statusNoUrl": "当前未配置更新地址，不会进行任何联网检查。",
+      "statusNoUrl": "当前未配置更新源，不会进行任何联网检查。",
       "statusAutoOn": "已启用自动检查（每天最多一次联网）。",
       "statusAutoOff": "自动检查已关闭，仅手动点「检查更新」时才会联网。"
     }

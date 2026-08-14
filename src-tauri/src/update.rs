@@ -1,12 +1,15 @@
 //! 轻量自研自动更新（免管理员、兼容单 exe 分发）。
 //!
-//! 流程：
-//! 1. 拉取更新清单 JSON（`{ version, url, sha256, notes }`，走 HTTPS）；
-//! 2. 版本号比较，有新版 → 用系统自带 curl 下载到 %APPDATA%\TimeTrace\updates\；
-//! 3. SHA-256 强校验（防篡改，不通过就删除拒绝安装）；
-//! 4. 隐藏 PowerShell 辅助进程：等待旧程序退出 → 覆盖当前 exe → 启动新版。
+//! 两种更新源（配置 `update_github_repo` 优先）：
+//! 1. **GitHub Releases 直读（类似 THRM）**：读取公开仓库最新 Release——
+//!    取 tag 作版本、`.exe` 附件作安装包、同 Release 内的 `.sha256` 附件作校验；
+//! 2. **更新清单 JSON**：`{ version, url, sha256, notes }`，地址必须 HTTPS。
 //!
-//! 安全说明：清单地址必须 HTTPS；校验失败绝不覆盖现有版本。
+//! 统一流程：版本号比较 → 有新版 → curl 下载到 %APPDATA%\TimeTrace\updates\
+//! → SHA-256 强校验（防篡改，不通过就删除拒绝安装）
+//! → 隐藏 PowerShell 辅助进程：等待旧程序退出 → 覆盖当前 exe → 启动新版。
+//!
+//! 安全说明：校验文件缺失或校验失败绝不覆盖现有版本。
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -40,7 +43,23 @@ pub struct UpdateManifest {
     pub notes: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+/// GitHub Releases API 响应（只取需要的字段）。
+#[derive(Debug, Clone, Deserialize)]
+struct GhRelease {
+    tag_name: String,
+    #[serde(default)]
+    assets: Vec<GhAsset>,
+    #[serde(default)]
+    body: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct GhAsset {
+    name: String,
+    browser_download_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct UpdateCheckDto {
     pub current_version: String,
     pub latest_version: String,
@@ -175,6 +194,17 @@ fn parse_version(v: &str) -> (u64, u64, u64) {
     )
 }
 
+/// 把 Release tag 转成纯数字版本串（"v2.20.0" / "release-2.20.0" → "2.20.0"）。
+fn tag_to_version_str(tag: &str) -> String {
+    tag.trim()
+        .trim_start_matches(|c: char| !c.is_ascii_digit())
+        .to_string()
+}
+
+fn version_from_tag(tag: &str) -> (u64, u64, u64) {
+    parse_version(&tag_to_version_str(tag))
+}
+
 fn fetch_manifest(url: &str) -> Result<UpdateManifest, String> {
     let out = Command::new("curl.exe")
         .args(["-sS", "-L", "-m", "25"])
@@ -188,6 +218,65 @@ fn fetch_manifest(url: &str) -> Result<UpdateManifest, String> {
         ));
     }
     serde_json::from_slice(&out.stdout).map_err(|e| format!("更新清单格式错误：{e}"))
+}
+
+/// 读取公开仓库的最新 Release（GitHub API，匿名即可；需要 User-Agent）。
+fn fetch_github_release(repo: &str) -> Result<GhRelease, String> {
+    if !repo.contains('/') {
+        return Err("GitHub 仓库格式应为「所有者/仓库名」，如 LINGYIIIIIIII/digitrace".to_string());
+    }
+    let api_url = format!("https://api.github.com/repos/{repo}/releases/latest");
+    let out = Command::new("curl.exe")
+        .args(["-sS", "-L", "-m", "25", "-H", "User-Agent: Digitrace"])
+        .arg(&api_url)
+        .output()
+        .map_err(|e| format!("无法启动 curl（需要 Windows 10 1803+）：{e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "读取 GitHub Release 失败（请确认仓库为公开且已发布 Release，私有仓库无法匿名读取）：{}",
+            String::from_utf8_lossy(&out.stderr).trim().chars().take(120).collect::<String>()
+        ));
+    }
+    serde_json::from_slice(&out.stdout).map_err(|e| format!("GitHub Release 数据格式错误：{e}"))
+}
+
+/// 取 Release 里的安装包附件：第一个 `.exe` 结尾的资源。
+fn pick_exe_asset(rel: &GhRelease) -> Option<&GhAsset> {
+    rel.assets
+        .iter()
+        .find(|a| a.name.to_ascii_lowercase().ends_with(".exe"))
+}
+
+/// 取 Release 里的 SHA-256 校验附件（`*.sha256` 或 `*.sha256.txt`），内容为 64 位十六进制。
+fn fetch_sha256_asset(rel: &GhRelease) -> Result<String, String> {
+    let candidate = rel
+        .assets
+        .iter()
+        .find(|a| {
+            let n = a.name.to_ascii_lowercase();
+            n.ends_with(".sha256") || n.ends_with(".sha256.txt")
+        })
+        .ok_or_else(|| {
+            "该 Release 缺少 .sha256 校验文件（安全要求，拒绝更新；请在发布时一并上传）".to_string()
+        })?;
+    let out = Command::new("curl.exe")
+        .args(["-sS", "-L", "-m", "20"])
+        .arg(&candidate.browser_download_url)
+        .output()
+        .map_err(|e| format!("无法下载校验文件：{e}"))?;
+    if !out.status.success() {
+        return Err("下载 .sha256 校验文件失败".to_string());
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let hash = text
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("Release 的 .sha256 文件内容不是合法的 64 位十六进制哈希".to_string());
+    }
+    Ok(hash)
 }
 
 fn sha256_file(path: &Path) -> Result<String, String> {
@@ -239,9 +328,14 @@ pub fn evaluate_update() -> UpdateCheckDto {
         notes: String::new(),
         message: None,
     };
+    // GitHub 仓库模式优先（类似 THRM：直接读公开仓库 Release）。
+    let repo = config.update_github_repo.trim();
+    if !repo.is_empty() {
+        return evaluate_github(repo, &mut dto);
+    }
     let url = config.update_manifest_url.trim();
     if url.is_empty() {
-        dto.message = Some("未配置更新地址（设置 → 更新）".to_string());
+        dto.message = Some("未配置更新源（设置 → 更新）".to_string());
         return dto;
     }
     if !url.starts_with("https://") {
@@ -263,6 +357,34 @@ pub fn evaluate_update() -> UpdateCheckDto {
         Err(e) => dto.message = Some(e),
     }
     dto
+}
+
+/// GitHub Releases 模式检查：最新 Release 的 tag + `.exe` 附件 + `.sha256` 附件。
+fn evaluate_github(repo: &str, dto: &mut UpdateCheckDto) -> UpdateCheckDto {
+    let rel = match fetch_github_release(repo) {
+        Ok(r) => r,
+        Err(e) => {
+            dto.message = Some(e);
+            return std::mem::take(dto);
+        }
+    };
+    let Some(exe) = pick_exe_asset(&rel) else {
+        dto.message = Some("该 Release 没有 .exe 安装包".to_string());
+        return std::mem::take(dto);
+    };
+    let sha = match fetch_sha256_asset(&rel) {
+        Ok(s) => s,
+        Err(e) => {
+            dto.message = Some(e);
+            return std::mem::take(dto);
+        }
+    };
+    dto.latest_version = tag_to_version_str(&rel.tag_name);
+    dto.url = exe.browser_download_url.clone();
+    dto.sha256 = sha;
+    dto.notes = rel.body.trim().chars().take(500).collect();
+    dto.has_update = version_from_tag(&rel.tag_name) > parse_version(&dto.current_version);
+    std::mem::take(dto)
 }
 
 /// 手动「检查更新」。
@@ -287,9 +409,14 @@ pub async fn download_update(app: AppHandle) -> UpdateActionDto {
 
 fn download_blocking(app: &AppHandle) -> UpdateActionDto {
     let config = timetrace_core::AppConfig::load();
+    // GitHub 仓库模式优先。
+    let repo = config.update_github_repo.trim().to_string();
+    if !repo.is_empty() {
+        return download_github_blocking(app, &repo);
+    }
     let manifest_url = config.update_manifest_url.trim().to_string();
     if manifest_url.is_empty() {
-        return action(false, "未配置更新地址");
+        return action(false, "未配置更新源（设置 → 更新）");
     }
     if !manifest_url.starts_with("https://") {
         return action(false, "更新地址必须使用 HTTPS（安全要求）");
@@ -304,7 +431,30 @@ fn download_blocking(app: &AppHandle) -> UpdateActionDto {
     if !manifest.url.starts_with("https://") {
         return action(false, "下载地址必须使用 HTTPS（安全要求）");
     }
+    download_and_verify(app, &manifest.url, &manifest.sha256)
+}
 
+/// GitHub 模式下载：取最新 Release 的 `.exe` 附件 + `.sha256` 校验文件后下载。
+fn download_github_blocking(app: &AppHandle, repo: &str) -> UpdateActionDto {
+    let rel = match fetch_github_release(repo) {
+        Ok(r) => r,
+        Err(e) => return action(false, e),
+    };
+    let Some(exe) = pick_exe_asset(&rel) else {
+        return action(false, "该 Release 没有 .exe 安装包");
+    };
+    let expected = match fetch_sha256_asset(&rel) {
+        Ok(s) => s,
+        Err(e) => return action(false, e),
+    };
+    if !exe.browser_download_url.starts_with("https://") {
+        return action(false, "下载地址必须使用 HTTPS（安全要求）");
+    }
+    download_and_verify(app, &exe.browser_download_url, &expected)
+}
+
+/// 下载 → SHA-256 强校验 → 落盘（两种更新源共用）。
+fn download_and_verify(app: &AppHandle, url: &str, expected_sha256: &str) -> UpdateActionDto {
     let dir = updates_dir();
     if let Err(e) = std::fs::create_dir_all(&dir) {
         return action(false, format!("无法创建更新目录：{e}"));
@@ -313,10 +463,10 @@ fn download_blocking(app: &AppHandle) -> UpdateActionDto {
     let target = dir.join(FIXED_UPDATE_NAME);
     let _ = std::fs::remove_file(&tmp);
 
-    let total = content_length(&manifest.url);
+    let total = content_length(url);
     let mut child = match Command::new("curl.exe")
         .args(["-sS", "-L", "--retry", "2", "--connect-timeout", "20"])
-        .arg(&manifest.url)
+        .arg(url)
         .arg("-o")
         .arg(&tmp)
         .spawn()
@@ -368,14 +518,14 @@ fn download_blocking(app: &AppHandle) -> UpdateActionDto {
             return action(false, e);
         }
     };
-    // sha256 非空已在上面强制校验，这里直接比对。
-    if !actual.eq_ignore_ascii_case(manifest.sha256.trim()) {
+    // sha256 非空已由调用方强制校验，这里直接比对。
+    if !actual.eq_ignore_ascii_case(expected_sha256.trim()) {
         let _ = std::fs::remove_file(&tmp);
         return action(
             false,
             format!(
                 "SHA-256 校验失败，已拒绝安装（期望 {}，实际 {}）",
-                manifest.sha256.trim(),
+                expected_sha256.trim(),
                 actual
             ),
         );
@@ -432,13 +582,15 @@ pub fn install_update(app: AppHandle) -> UpdateActionDto {
     }
 }
 
-/// 启动后台自动检查（每天最多一次，仅当配置了更新地址且开关打开）。
+/// 启动后台自动检查（每天最多一次，仅当配置了更新源且开关打开）。
 pub fn start_background_check(app: AppHandle) {
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(6));
         loop {
             let config = timetrace_core::AppConfig::load();
-            if config.update_check_enabled && !config.update_manifest_url.trim().is_empty() {
+            let has_source = !config.update_manifest_url.trim().is_empty()
+                || !config.update_github_repo.trim().is_empty();
+            if config.update_check_enabled && has_source {
                 let today = chrono::Local::now().format("%Y-%m-%d").to_string();
                 let last =
                     std::fs::read_to_string(data_dir().join(LAST_CHECK_FILE)).unwrap_or_default();
@@ -465,5 +617,60 @@ pub fn take_update_result() -> Option<String> {
         None
     } else {
         Some(v)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tag_version_parsing() {
+        assert_eq!(tag_to_version_str("v2.20.0"), "2.20.0");
+        assert_eq!(tag_to_version_str("release-2.20.0"), "2.20.0");
+        assert_eq!(tag_to_version_str("2.19.1"), "2.19.1");
+        assert!(parse_version("2.20.0") > parse_version("2.19.1"));
+        assert!(version_from_tag("v2.20.0") > parse_version("2.19.1"));
+        assert!(version_from_tag("v2.20.0") == parse_version("2.20.0"));
+    }
+
+    #[test]
+    fn exe_asset_picking() {
+        let rel = GhRelease {
+            tag_name: "v1.0.0".to_string(),
+            assets: vec![
+                GhAsset {
+                    name: "readme.md".to_string(),
+                    browser_download_url: "https://x/readme.md".to_string(),
+                },
+                GhAsset {
+                    name: "digitrace-v1.0.0.exe".to_string(),
+                    browser_download_url: "https://x/digitrace-v1.0.0.exe".to_string(),
+                },
+                GhAsset {
+                    name: "digitrace-v1.0.0.exe.sha256".to_string(),
+                    browser_download_url: "https://x/digitrace-v1.0.0.exe.sha256".to_string(),
+                },
+            ],
+            body: String::new(),
+        };
+        let exe = pick_exe_asset(&rel).expect("应选中 .exe 附件");
+        assert_eq!(exe.name, "digitrace-v1.0.0.exe");
+    }
+
+    #[test]
+    fn sha256_asset_name_matches() {
+        let rel = GhRelease {
+            tag_name: "v1.0.0".to_string(),
+            assets: vec![GhAsset {
+                name: "digitrace-v1.0.0.exe.SHA256".to_string(),
+                browser_download_url: "https://x/hash".to_string(),
+            }],
+            body: String::new(),
+        };
+        assert!(rel.assets.iter().any(|a| {
+            let n = a.name.to_ascii_lowercase();
+            n.ends_with(".sha256") || n.ends_with(".sha256.txt")
+        }));
     }
 }

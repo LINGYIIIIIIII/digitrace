@@ -387,8 +387,10 @@
       "autoCheckDescription": "起動後に新バージョンを自動チェックします（1 日最大 1 回）。",
       "manifestUrl": "更新マニフェスト URL",
       "manifestUrlDescription": "JSON 形式：{ version, url, sha256, notes }。HTTPS 必須。SHA-256 で検証します。",
+      "githubRepo": "GitHub リポジトリ（更新元）",
+      "githubRepoDescription": "公開リポジトリの最新 Release を直接参照して更新します（THRM と同様）。マニフェスト URL より優先。形式：所有者/リポジトリ名。",
       "hint": "ダウンロード後にハッシュ検証し、失敗した場合はインストールを拒否します。上書き前に旧プロセスは自動終了します。",
-      "statusNoUrl": "更新 URL が未設定のため、ネットワークに接続しません。",
+      "statusNoUrl": "更新元が未設定のため、ネットワークに接続しません。",
       "statusAutoOn": "自動チェック有効（1 日最大 1 回ネットワーク接続）。",
       "statusAutoOff": "自動チェックは無効です。「更新を確認」を押したときだけ接続します。"
     }

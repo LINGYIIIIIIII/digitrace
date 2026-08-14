@@ -10,6 +10,7 @@ import {
   FolderOpen,
   Globe,
   CodeXml,
+  GitBranch,
   Languages,
   Monitor,
   Palette,
@@ -827,12 +828,33 @@ const [driverStatus, setDriverStatus] = useState<CpuTemperatureDto | null>(null)
                     </div>
                   </div>
                 </div>
+                <div className="border-t border-border/60 px-5 py-4">
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary">
+                      <GitBranch className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-foreground">
+                        {t('settings.update.githubRepo')}
+                      </div>
+                      <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                        {t('settings.update.githubRepoDescription')}
+                      </p>
+                      <Input
+                        className="mt-2 h-8 font-mono text-xs"
+                        placeholder="LINGYIIIIIIII/digitrace"
+                        value={config?.update_github_repo ?? ''}
+                        onChange={(e) => void patchConfig({ update_github_repo: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </div>
               </Card>
               <p className="px-1 text-xs leading-relaxed text-muted-foreground">
                 {t('settings.update.hint')}
               </p>
               <p className="px-1 text-xs font-medium">
-                {!config?.update_manifest_url?.trim()
+                {!config?.update_manifest_url?.trim() && !config?.update_github_repo?.trim()
                   ? t('settings.update.statusNoUrl')
                   : config?.update_check_enabled
                     ? t('settings.update.statusAutoOn')

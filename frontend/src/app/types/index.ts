@@ -20,6 +20,7 @@ export interface AppConfig {
   health_break_minutes: number;
   update_check_enabled: boolean;
   update_manifest_url: string;
+  update_github_repo: string;
   tray_items: string[];
   launch_show_window: boolean;
 }

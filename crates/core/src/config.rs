@@ -83,6 +83,11 @@ pub struct AppConfig {
     #[serde(default)]
     pub update_manifest_url: String,
 
+    /// 自动更新：GitHub 公开仓库（`所有者/仓库名`）。设置后直接读取该仓库
+    /// 最新 Release 进行更新（类似 THRM），优先于 update_manifest_url。
+    #[serde(default)]
+    pub update_github_repo: String,
+
     /// 托盘菜单显示的数据行：cpu / memory / network / active / temp。
     #[serde(default = "default_tray_items")]
     pub tray_items: Vec<String>,
@@ -164,6 +169,7 @@ impl Default for AppConfig {
             health_break_minutes: default_health_break_minutes(),
             update_check_enabled: true,
             update_manifest_url: String::new(),
+            update_github_repo: String::new(),
             tray_items: default_tray_items(),
             launch_show_window: true,
             autostart_elevated: false,

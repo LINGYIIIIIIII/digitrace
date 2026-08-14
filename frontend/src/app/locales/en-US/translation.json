@@ -406,8 +406,10 @@
       "autoCheckDescription": "Check for new versions after launch (at most once per day).",
       "manifestUrl": "Update manifest URL",
       "manifestUrlDescription": "JSON format: { version, url, sha256, notes }. Must be HTTPS; downloads are verified against the SHA-256 hash.",
+      "githubRepo": "GitHub repository (update source)",
+      "githubRepoDescription": "Check the latest release of a public GitHub repository directly (like THRM). Takes priority over the manifest URL. Format: owner/repo.",
       "hint": "Updates are hash-verified and refused if verification fails; the old process exits before being replaced.",
-      "statusNoUrl": "No update URL configured — no network checks are made.",
+      "statusNoUrl": "No update source configured — no network checks are made.",
       "statusAutoOn": "Automatic checks enabled (at most one network request per day).",
       "statusAutoOff": "Automatic checks off — the app only goes online when you click \"Check for updates\"."
     }

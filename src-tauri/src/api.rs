@@ -129,6 +129,8 @@ pub struct ConfigDto {
     pub update_check_enabled: bool,
     /// 自动更新：更新清单地址（JSON）。为空表示未配置更新源。
     pub update_manifest_url: String,
+    /// 自动更新：GitHub 公开仓库（`所有者/仓库名`），优先于清单地址。
+    pub update_github_repo: String,
     /// 托盘菜单显示的数据行：cpu / memory / network / active。
     pub tray_items: Vec<String>,
     /// 启动时显示主界面（关闭则隐藏到托盘）。
@@ -420,6 +422,7 @@ impl TimeTraceApi {
             health_break_minutes: config.health_break_minutes,
             update_check_enabled: config.update_check_enabled,
             update_manifest_url: config.update_manifest_url,
+            update_github_repo: config.update_github_repo,
             tray_items: config.tray_items.clone(),
             launch_show_window: config.launch_show_window,
         }
@@ -444,6 +447,13 @@ impl TimeTraceApi {
         app_config.titlebar_items = config.titlebar_items;
         app_config.health_reminder_enabled = config.health_reminder_enabled;
         app_config.update_check_enabled = config.update_check_enabled;
+        let repo = config.update_github_repo.trim();
+        if !repo.is_empty() && !repo.contains('/') {
+            return Err(anyhow::anyhow!(
+                "GitHub 仓库格式应为「所有者/仓库名」，如 LINGYIIIIIIII/digitrace"
+            ));
+        }
+        app_config.update_github_repo = repo.to_string();
         let url = config.update_manifest_url.trim();
         if !url.is_empty() && !url.starts_with("https://") {
             return Err(anyhow::anyhow!("更新地址必须使用 HTTPS（安全要求）"));

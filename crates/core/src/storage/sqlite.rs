@@ -1011,6 +1011,8 @@ fn parse_dt(s: String) -> DateTime<Utc> {
 #[cfg(test)]
 pub struct MemoryStore {
     sessions: Mutex<Vec<SessionRecord>>,
+    /// 汇总缓存（当前实现不使用，保留以对齐 SqliteStore 语义）。
+    #[allow(dead_code)]
     summaries: Mutex<Vec<(String, NaiveDate, i64, i64)>>, // app_name, date, seconds, count
     startups: Mutex<Vec<StartupEntryRecord>>,
     metas: Mutex<Vec<AppMetaRecord>>,
