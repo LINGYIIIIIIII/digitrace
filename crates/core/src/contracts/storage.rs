@@ -96,6 +96,10 @@ pub trait DataStore: Send + Sync {
     /// Get top N apps by total usage time in a date range.
     fn get_top_apps(&self, start: NaiveDate, end: NaiveDate, limit: usize) -> Vec<AppUsageSummary>;
 
+    /// 日期范围内的每日活跃秒数（按天聚合、不含 idle），用于全年热力图。
+    /// 返回 (date, active_seconds)，按日期升序。
+    fn get_active_by_date(&self, start: NaiveDate, end: NaiveDate) -> Vec<(String, i64)>;
+
     /// Get per-app active + idle time split for a date range.
     fn get_usage_split(&self, start: NaiveDate, end: NaiveDate) -> Vec<AppUsageSplit>;
 

@@ -69,21 +69,6 @@ function rangeFor(
   return { start: `${focus.slice(0, 7)}-01`, end: focus, focus };
 }
 
-function parseCsvUsage(csv: string): { usage: Map<string, number>; max: number } {
-  const usage = new Map<string, number>();
-  const re = /,(\d{4}-\d{2}-\d{2}),(\d+),(\d+)/g;
-  let match: RegExpExecArray | null;
-  let max = 0;
-  while ((match = re.exec(csv)) !== null) {
-    const date = match[1];
-    const active = Number(match[2]) || 0;
-    const total = (usage.get(date) ?? 0) + active;
-    usage.set(date, total);
-    if (total > max) max = total;
-  }
-  return { usage, max };
-}
-
 function clsx(...parts: (string | false | undefined | null)[]): string {
   return parts.filter(Boolean).join(' ');
 }
@@ -107,20 +92,17 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   const { start, end, focus } = useMemo(() => rangeFor(range, config), [range, config]);
+  const year = Number(focus.slice(0, 4));
 
+  // 轻量轮询：只刷新仪表盘数据 + 今日小时分布（10s 一次）。
   const load = useCallback(async () => {
     try {
-      const year = Number(focus.slice(0, 4));
-      const [dash, hourlyData, csv] = await Promise.all([
+      const [dash, hourlyData] = await Promise.all([
         apiService.getDashboardData(start, end),
         apiService.getDayHourly(focus),
-        apiService.exportCsv(`${year}-01-01`, `${year}-12-31`),
       ]);
       setData(dash);
       setHourly(hourlyData);
-      const { usage, max } = parseCsvUsage(csv);
-      setCalendarUsage(usage);
-      setCalendarMax(max);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -132,6 +114,28 @@ export default function DashboardPage() {
     const timer = window.setInterval(() => void load(), refreshInterval * 1000);
     return () => window.clearInterval(timer);
   }, [load, refreshInterval]);
+
+  // 全年热力图：数据量大，只在年份变化时加载一次，不随 10s 轮询刷新。
+  useEffect(() => {
+    let cancelled = false;
+    void apiService
+      .getYearHeatmap(year)
+      .then((rows) => {
+        if (cancelled) return;
+        const usage = new Map<string, number>();
+        let max = 0;
+        for (const [date, secs] of rows) {
+          usage.set(date, secs);
+          if (secs > max) max = secs;
+        }
+        setCalendarUsage(usage);
+        setCalendarMax(max);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [year]);
 
   const openEditor = useCallback(() => {
     setEditLayout(JSON.parse(JSON.stringify(layout)) as DashboardLayout);

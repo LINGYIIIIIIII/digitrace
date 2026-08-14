@@ -923,6 +923,22 @@ impl DataStore for SqliteStore {
         }
         out
     }
+
+    fn get_active_by_date(&self, start: NaiveDate, end: NaiveDate) -> Vec<(String, i64)> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT date, COALESCE(SUM(CASE WHEN is_idle = 0 THEN duration_secs ELSE 0 END), 0)
+             FROM usage_sessions
+             WHERE date >= ?1 AND date <= ?2 AND app_name != '__IDLE__'
+             GROUP BY date ORDER BY date",
+        ) && let Ok(rows) = stmt.query_map(params![start.to_string(), end.to_string()], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        }) {
+            out.extend(rows.flatten());
+        }
+        out
+    }
 }
 
 // ── Internal helpers ──
@@ -1224,6 +1240,35 @@ impl DataStore for MemoryStore {
 
     fn export_rows(&self, _start: NaiveDate, _end: NaiveDate) -> Vec<(String, String, i64, i64)> {
         vec![]
+    }
+
+    fn get_active_by_date(&self, start: NaiveDate, end: NaiveDate) -> Vec<(String, i64)> {
+        let mut out: Vec<(String, i64)> = Vec::new();
+        let mut last = String::new();
+        let mut acc: i64 = 0;
+        let sessions = self.sessions.lock().unwrap();
+        let mut sorted: Vec<&SessionRecord> = sessions
+            .iter()
+            .filter(|s| !s.is_idle && s.date >= start && s.date <= end)
+            .collect();
+        sorted.sort_by_key(|s| s.date);
+        for s in sorted {
+            let d = s.date.to_string();
+            let dur = s.duration_secs.unwrap_or(0);
+            if d == last {
+                acc += dur;
+            } else {
+                if !last.is_empty() {
+                    out.push((last, acc));
+                }
+                last = d;
+                acc = dur;
+            }
+        }
+        if !last.is_empty() {
+            out.push((last, acc));
+        }
+        out
     }
 
     fn get_diary_entries(&self, _start: NaiveDate, _end: NaiveDate) -> Vec<(String, String)> {

@@ -31,8 +31,9 @@ if (-not $changed) {
     Write-Error "No [package] version line found in $cargoFile"
     exit 1
 }
-# UTF-8 无 BOM 写入（PS 5.1 的 Set-Content -Encoding UTF8 会写 BOM，导致 cargo/tauri-build 解析失败）
-[System.IO.File]::WriteAllLines($cargoFile, $lines, (New-Object System.Text.UTF8Encoding($false)))
+# UTF-8 无 BOM 写入（File.WriteAllLines 默认即 UTF-8 无 BOM，无需显式编码对象——
+# PS 5.1 下 New-Object UTF8Encoding($false) 作为实参会解析失败导致写入静默跳过）
+[System.IO.File]::WriteAllLines($cargoFile, $lines)
 
 # 2) tauri.conf.json: replace the "version" field via regex (avoids JSON
 #    re-serialization which would escape non-ASCII chars).
@@ -42,7 +43,7 @@ if ($conf -notmatch '"version"\s*:\s*"\d+\.\d+\.\d+"') {
     exit 1
 }
 $conf = $conf -replace '("version"\s*:\s*)"\d+\.\d+\.\d+"', "`$1`"$Version`""
-[System.IO.File]::WriteAllText($confFile, $conf, (New-Object System.Text.UTF8Encoding($false)))
+[System.IO.File]::WriteAllText($confFile, $conf)
 
 Write-Host "OK: bumped to v$Version in:"
 Write-Host "  - $cargoFile"

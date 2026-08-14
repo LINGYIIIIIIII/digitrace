@@ -284,6 +284,7 @@ fn main() {
             api::get_week_totals,
             api::get_day_detail,
             api::get_day_hourly,
+            api::get_year_heatmap,
             api::get_hour_apps,
             api::get_app_hourly,
             api::clear_data,

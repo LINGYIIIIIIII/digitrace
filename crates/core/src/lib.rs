@@ -17,7 +17,6 @@ pub mod time_util;
 pub use config::AppConfig;
 pub use contracts::events::{AppInfo, EventSink, EventSource, EventSourceHandle, TrackedEvent};
 pub use contracts::idle::IdleDetector;
-pub use contracts::process::{ProcessInfo, ProcessQuery, ProcessStatus};
 pub use contracts::startup::{DisableResult, StartupEntryRecord, StartupScanner};
 pub use contracts::storage::{
     AppMetaRecord, AppUsageSplit, AppUsageSummary, DataStore, SessionRecord,
@@ -30,9 +29,9 @@ pub use engine::{
 };
 pub use engine::{
     DiskSnapshot, HardwareMonitor, HardwareSnapshot, NetAppMonitor, NetAppUsage, SessionAggregator,
-    SysinfoProcessQuery, Win32IdleDetector, Win32WindowResolver, WindowsStartupScanner,
-    disable_autostart, disable_elevated_autostart, enable_autostart, enable_elevated_autostart,
-    heal_autostart, is_autostart_enabled, is_elevated_autostart_enabled, run_monitor_loop,
+    Win32IdleDetector, Win32WindowResolver, WindowsStartupScanner, disable_autostart,
+    disable_elevated_autostart, enable_autostart, enable_elevated_autostart, heal_autostart,
+    is_autostart_enabled, is_elevated_autostart_enabled, run_monitor_loop,
 };
 pub use error::AppError;
 pub use monitor::{MonitorCore, NetworkSnapshot};

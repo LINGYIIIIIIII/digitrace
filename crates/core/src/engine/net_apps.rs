@@ -114,6 +114,8 @@ pub struct NetAppMonitor {
     probed: bool,                       // 是否已探测权限
     bytes_available: bool,              // 是否处于字节模式
     last_sample: Option<Instant>,
+    /// 复用的进程表：避免每次快照都重建 sysinfo::System（减少内存抖动）。
+    sys: sysinfo::System,
 }
 
 impl NetAppMonitor {
@@ -127,6 +129,7 @@ impl NetAppMonitor {
             probed: false,
             bytes_available: false,
             last_sample: None,
+            sys: sysinfo::System::new(),
         }
     }
 
@@ -251,8 +254,15 @@ impl NetAppMonitor {
             self.probe_bytes_support();
         }
         let rates = self.sample();
-        let mut sys = sysinfo::System::new();
-        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        // 复用进程表，仅刷新需要的字段（exe 路径；进程名始终刷新），
+        // 避免每 2 秒重建 System。
+        self.sys.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::All,
+            true,
+            sysinfo::ProcessRefreshKind::nothing()
+                .with_exe(sysinfo::UpdateKind::OnlyIfNotSet),
+        );
+        let sys = &self.sys;
 
         let mut merged: HashMap<u32, (f64, f64, u32)> = HashMap::new();
         for (pid, down, up, active) in rates {

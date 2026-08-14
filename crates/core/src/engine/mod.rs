@@ -5,7 +5,6 @@ pub mod hardware;
 pub mod idle_win32;
 pub mod monitor;
 pub mod net_apps;
-pub mod process_sysinfo;
 pub mod startup_win32;
 pub mod temperature;
 pub mod window_win32;
@@ -19,7 +18,6 @@ pub use hardware::{DiskSnapshot, HardwareMonitor, HardwareSnapshot};
 pub use idle_win32::Win32IdleDetector;
 pub use monitor::run_monitor_loop;
 pub use net_apps::{NetAppMonitor, NetAppUsage};
-pub use process_sysinfo::SysinfoProcessQuery;
 pub use startup_win32::WindowsStartupScanner;
 pub use temperature::{
     CpuTemperature, DiskHealthInfo, DiskTemperature, DriverActionResult, GpuTemperature,

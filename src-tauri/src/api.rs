@@ -791,6 +791,14 @@ impl TimeTraceApi {
         DataStore::get_day_hourly(&*self.db, parse_date(&date))
     }
 
+    /// 全年每日活跃秒数（热力图数据，按天聚合，轻量查询）。
+    pub fn get_year_heatmap(&self, year: i32) -> Vec<(String, i64)> {
+        let start = chrono::NaiveDate::from_ymd_opt(year, 1, 1)
+            .unwrap_or_else(|| chrono::Local::now().date_naive());
+        let end = chrono::NaiveDate::from_ymd_opt(year, 12, 31).unwrap_or(start);
+        DataStore::get_active_by_date(&*self.db, start, end)
+    }
+
     /// Apps active within a specific hour of a date (seconds per app).
     pub fn get_hour_apps(&self, date: String, hour: u32) -> Vec<AppUsageDto> {
         DataStore::get_hour_apps(&*self.db, parse_date(&date), hour)
@@ -1049,6 +1057,11 @@ pub fn get_day_detail(state: State<'_, AppState>, date: String) -> DayDetailDto 
 #[tauri::command]
 pub fn get_day_hourly(state: State<'_, AppState>, date: String) -> Vec<i64> {
     lock(&state).get_day_hourly(date)
+}
+
+#[tauri::command]
+pub fn get_year_heatmap(state: State<'_, AppState>, year: i32) -> Vec<(String, i64)> {
+    lock(&state).get_year_heatmap(year)
 }
 
 #[tauri::command]

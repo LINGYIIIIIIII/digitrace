@@ -76,6 +76,10 @@ class ApiService {
     return invoke<number[]>('get_day_hourly', { date });
   }
 
+  async getYearHeatmap(year: number): Promise<[string, number][]> {
+    return invoke<[string, number][]>('get_year_heatmap', { year });
+  }
+
   async getHourApps(date: string, hour: number): Promise<AppUsageDto[]> {
     return invoke<AppUsageDto[]>('get_hour_apps', { date, hour });
   }
