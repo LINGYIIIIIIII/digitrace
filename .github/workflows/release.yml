@@ -50,4 +50,6 @@ jobs:
         run: |
           $tag = $env:GITHUB_REF_NAME
           $ver = $tag.TrimStart('v')
+          # 幂等：tag 被移动后重跑时，先删除已存在的 release 再重建，避免「同名已存在」报错。
+          gh release delete $tag --repo LINGYIIIIIIII/digitrace --yes 2>$null
           gh release create $tag "target/release/digitrace-$ver.exe" "target/release/digitrace-$ver.exe.sha256" --repo LINGYIIIIIIII/digitrace --title "数迹 v$ver" --notes "自动构建发布 v$ver（GitHub Actions）。SHA-256 见附件 digitrace-$ver.exe.sha256。"
