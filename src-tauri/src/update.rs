@@ -29,6 +29,8 @@ const FIXED_UPDATE_NAME: &str = "数迹-update.exe";
 const LAST_CHECK_FILE: &str = "last_update_check.txt";
 const RESULT_FILE: &str = "update_result.txt";
 const PENDING_TAKEOVER_FILE: &str = "pending_takeover.json";
+/// 静默更新待安装标记：静默模式下载完成后写入，进程退出时消费（替换 exe）。
+const SILENT_PENDING_FILE: &str = "silent_pending.txt";
 /// 认领用的临时文件名：用 rename 原子地“认领”接管请求，
 /// 避免单实例回调和轮询线程同时处理导致重复弹窗。
 const PENDING_TAKEOVER_CLAIM: &str = "pending_takeover.claim";
@@ -557,34 +559,70 @@ fn download_and_verify(app: &AppHandle, url: &str, expected_sha256: &str) -> Upd
 /// 安装更新：等待旧进程退出 → 覆盖当前 exe → 启动新版 → 退出当前进程。
 #[tauri::command]
 pub fn install_update(app: AppHandle) -> UpdateActionDto {
+    match spawn_installer_ps(false) {
+        Ok(()) => {
+            clear_silent_pending();
+            app.exit(0);
+            UpdateActionDto {
+                ok: true,
+                message: None,
+            }
+        }
+        Err(e) => action(false, e),
+    }
+}
+
+/// 隐藏 PowerShell 辅助进程：轮询等待旧 exe 退出（最多 25 秒）→ 覆盖 →
+/// 记录结果 → 按模式拉起新版（`--show-window` 前台 / `--tray` 静默托盘）。
+fn spawn_installer_ps(to_tray: bool) -> Result<(), String> {
     let target = updates_dir().join(FIXED_UPDATE_NAME);
     if !target.exists() {
-        return action(false, "未找到已下载的更新包，请先下载");
+        return Err("未找到已下载的更新包，请先下载".to_string());
     }
-    let current = match std::env::current_exe() {
-        Ok(p) => p,
-        Err(e) => return action(false, format!("无法定位当前程序：{e}")),
-    };
+    let current = std::env::current_exe().map_err(|e| format!("无法定位当前程序：{e}"))?;
     let new_path = target.to_string_lossy().replace('\'', "''");
     let cur_path = current.to_string_lossy().replace('\'', "''");
     let result_file = data_dir().join(RESULT_FILE);
     let result_path = result_file.to_string_lossy().replace('\'', "''");
-    // PowerShell 辅助进程：轮询等待旧 exe 退出（最多 25 秒）→ 覆盖 → 记录结果 → 启动新版。
+    let relaunch_arg = if to_tray { "'--tray'" } else { "'--show-window'" };
     let ps = format!(
-        "$d=(Get-Date).AddSeconds(25); while((Get-Date) -lt $d){{ $p=Get-Process | Where-Object {{ $_.Path -eq '{cur_path}' }}; if(-not $p){{ break }}; Start-Sleep -Milliseconds 300 }}; try {{ Copy-Item -LiteralPath '{new_path}' -Destination '{cur_path}' -Force; Set-Content -LiteralPath '{result_path}' -Value 'ok' }} catch {{ Set-Content -LiteralPath '{result_path}' -Value ('fail:' + $_.Exception.Message) }}; Start-Process -FilePath '{cur_path}' -ArgumentList '--show-window'"
+        "$d=(Get-Date).AddSeconds(25); while((Get-Date) -lt $d){{ $p=Get-Process | Where-Object {{ $_.Path -eq '{cur_path}' }}; if(-not $p){{ break }}; Start-Sleep -Milliseconds 300 }}; try {{ Copy-Item -LiteralPath '{new_path}' -Destination '{cur_path}' -Force; Set-Content -LiteralPath '{result_path}' -Value 'ok' }} catch {{ Set-Content -LiteralPath '{result_path}' -Value ('fail:' + $_.Exception.Message) }}; Start-Process -FilePath '{cur_path}' -ArgumentList {relaunch_arg}"
     );
     let spawned = Command::new("powershell")
         .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps])
         .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .spawn();
-    if spawned.is_err() {
-        return action(false, "无法启动更新辅助进程");
+    spawned
+        .map(|_| ())
+        .map_err(|e| format!("无法启动更新辅助进程：{e}"))
+}
+
+/// 静默模式：后台下载新版本并落盘，写入「待安装」标记，不弹任何提示。
+/// 进程退出时由 `install_silent_pending` 消费。返回是否已下载完成。
+pub fn silent_download_and_mark(app: &AppHandle) -> bool {
+    let ok = download_blocking(app).ok;
+    if ok {
+        let _ = std::fs::write(
+            data_dir().join(SILENT_PENDING_FILE),
+            env!("CARGO_PKG_VERSION"),
+        );
     }
-    app.exit(0);
-    UpdateActionDto {
-        ok: true,
-        message: None,
-    }
+    ok
+}
+
+/// 静默安装（进程退出时调用）：以托盘模式替换并拉起新版，无任何界面。
+pub fn install_silent_pending() -> bool {
+    spawn_installer_ps(true).is_ok()
+}
+
+/// 是否存在待安装的静默更新。
+pub fn silent_pending_exists() -> bool {
+    data_dir().join(SILENT_PENDING_FILE).exists()
+}
+
+/// 清除「待安装」标记。
+pub fn clear_silent_pending() {
+    let _ = std::fs::remove_file(data_dir().join(SILENT_PENDING_FILE));
 }
 
 /// 启动后台自动检查（每天最多一次，仅当配置了更新源且开关打开）。
@@ -602,7 +640,12 @@ pub fn start_background_check(app: AppHandle) {
                 if last.trim() != today {
                     let dto = evaluate_update();
                     if dto.has_update {
-                        let _ = app.emit("update-available", dto);
+                        if config.update_silent {
+                            // 静默模式：直接后台下载，不弹任何提示。
+                            let _ = silent_download_and_mark(&app);
+                        } else {
+                            let _ = app.emit("update-available", dto);
+                        }
                     }
                     let _ = std::fs::write(data_dir().join(LAST_CHECK_FILE), today);
                 }

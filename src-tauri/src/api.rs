@@ -131,6 +131,8 @@ pub struct ConfigDto {
     pub update_manifest_url: String,
     /// 自动更新：GitHub 公开仓库（`所有者/仓库名`），优先于清单地址。
     pub update_github_repo: String,
+    /// 自动更新：静默模式（后台下载，退出时静默替换，无弹窗）。
+    pub update_silent: bool,
     /// 托盘菜单显示的数据行：cpu / memory / network / active。
     pub tray_items: Vec<String>,
     /// 启动时显示主界面（关闭则隐藏到托盘）。
@@ -423,6 +425,7 @@ impl TimeTraceApi {
             update_check_enabled: config.update_check_enabled,
             update_manifest_url: config.update_manifest_url,
             update_github_repo: config.update_github_repo,
+            update_silent: config.update_silent,
             tray_items: config.tray_items.clone(),
             launch_show_window: config.launch_show_window,
         }
@@ -454,6 +457,7 @@ impl TimeTraceApi {
             ));
         }
         app_config.update_github_repo = repo.to_string();
+        app_config.update_silent = config.update_silent;
         let url = config.update_manifest_url.trim();
         if !url.is_empty() && !url.starts_with("https://") {
             return Err(anyhow::anyhow!("更新地址必须使用 HTTPS（安全要求）"));

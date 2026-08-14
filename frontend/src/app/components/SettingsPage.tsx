@@ -808,6 +808,18 @@ const [driverStatus, setDriverStatus] = useState<CpuTemperatureDto | null>(null)
                     onChange={(v) => void patchConfig({ update_check_enabled: v })}
                   />
                 </SettingRow>
+                <div className="border-t border-border/60">
+                  <SettingRow
+                    icon={<ShieldCheck className="h-4 w-4" />}
+                    title={t('settings.update.silentUpdate')}
+                    description={t('settings.update.silentUpdateDescription')}
+                  >
+                    <ToggleSwitch
+                      enabled={config?.update_silent ?? false}
+                      onChange={(v) => void patchConfig({ update_silent: v })}
+                    />
+                  </SettingRow>
+                </div>
                 <div className="border-t border-border/60 px-5 py-4">
                   <div className="flex items-start gap-3">
                     <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary">

@@ -403,6 +403,8 @@
     "update": {
       "autoCheck": "自动检查更新",
       "autoCheckDescription": "启动后自动检查新版本（每天最多一次）。",
+      "silentUpdate": "静默更新",
+      "silentUpdateDescription": "后台自动下载新版本，退出应用时静默替换并重启到托盘，全程不弹确认框、不弹通知。",
       "manifestUrl": "更新清单地址",
       "manifestUrlDescription": "JSON 格式：{ version, url, sha256, notes }。地址必须为 HTTPS，文件会做 SHA-256 校验。",
       "githubRepo": "GitHub 仓库（更新源）",

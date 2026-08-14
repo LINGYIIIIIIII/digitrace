@@ -88,6 +88,11 @@ pub struct AppConfig {
     #[serde(default)]
     pub update_github_repo: String,
 
+    /// 自动更新：静默模式。开启后后台自动下载新版本，退出应用时静默替换，
+    /// 下次启动即为新版，全程不弹确认框、不弹通知。
+    #[serde(default)]
+    pub update_silent: bool,
+
     /// 托盘菜单显示的数据行：cpu / memory / network / active / temp。
     #[serde(default = "default_tray_items")]
     pub tray_items: Vec<String>,
@@ -170,6 +175,7 @@ impl Default for AppConfig {
             update_check_enabled: true,
             update_manifest_url: String::new(),
             update_github_repo: String::new(),
+            update_silent: false,
             tray_items: default_tray_items(),
             launch_show_window: true,
             autostart_elevated: false,

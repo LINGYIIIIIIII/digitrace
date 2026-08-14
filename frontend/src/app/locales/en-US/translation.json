@@ -404,6 +404,8 @@
     "update": {
       "autoCheck": "Check for updates automatically",
       "autoCheckDescription": "Check for new versions after launch (at most once per day).",
+      "silentUpdate": "Silent updates",
+      "silentUpdateDescription": "Download updates in the background, replace silently on exit and restart to tray — no prompts, no notifications.",
       "manifestUrl": "Update manifest URL",
       "manifestUrlDescription": "JSON format: { version, url, sha256, notes }. Must be HTTPS; downloads are verified against the SHA-256 hash.",
       "githubRepo": "GitHub repository (update source)",

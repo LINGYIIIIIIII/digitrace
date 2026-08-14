@@ -21,6 +21,7 @@ export interface AppConfig {
   update_check_enabled: boolean;
   update_manifest_url: string;
   update_github_repo: string;
+  update_silent: boolean;
   tray_items: string[];
   launch_show_window: boolean;
 }

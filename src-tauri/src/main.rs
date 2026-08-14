@@ -201,12 +201,17 @@ fn main() {
             update::clear_stale_pending_takeover();
             // 跨权限接管兜底：轮询新版写入的「待切换」标记并弹窗询问。
             spawn_takeover_poller(app.handle().clone());
-            if let Some(result) = update::take_update_result() {
-                if result.starts_with("ok") {
-                    health::show_toast(app.handle(), "数迹 · 更新完成", "已更新到最新版本。");
-                } else if let Some(msg) = result.strip_prefix("fail:") {
-                    health::show_toast(app.handle(), "数迹 · 更新失败", msg);
+            if !config.update_silent {
+                if let Some(result) = update::take_update_result() {
+                    if result.starts_with("ok") {
+                        health::show_toast(app.handle(), "数迹 · 更新完成", "已更新到最新版本。");
+                    } else if let Some(msg) = result.strip_prefix("fail:") {
+                        health::show_toast(app.handle(), "数迹 · 更新失败", msg);
+                    }
                 }
+            } else {
+                // 静默模式：吞掉更新结果，不弹通知。
+                let _ = update::take_update_result();
             }
 
             if let Some(window) = app.get_webview_window("main") {
@@ -295,6 +300,11 @@ fn main() {
                 health::cleanup_toast_icon();
                 if let Some(tracker) = app.try_state::<Arc<health::HealthTracker>>() {
                     tracker.persist_now();
+                }
+                // 静默更新：退出时替换 exe，并以托盘模式静默拉起新版（无窗口无弹窗）。
+                if crate::update::silent_pending_exists() {
+                    crate::update::clear_silent_pending();
+                    let _ = crate::update::install_silent_pending();
                 }
             }
         });
