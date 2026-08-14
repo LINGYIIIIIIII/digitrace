@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { UpdateCheckCard } from './UpdateCheckCard';
 import { useShallow } from 'zustand/react/shallow';
 import { useLocale } from '../lib/i18n';
 import { apiService } from '../services/api';
@@ -850,6 +851,13 @@ const [driverStatus, setDriverStatus] = useState<CpuTemperatureDto | null>(null)
                   </div>
                 </div>
               </Card>
+              <div className="rounded-2xl border border-border bg-card px-5 py-4">
+                <div className="mb-2 flex items-center gap-2 text-primary">
+                  <RefreshCw className="h-4 w-4" />
+                  <h4 className="text-sm font-semibold">{t('about.update.title')}</h4>
+                </div>
+                <UpdateCheckCard />
+              </div>
               <p className="px-1 text-xs leading-relaxed text-muted-foreground">
                 {t('settings.update.hint')}
               </p>

@@ -209,6 +209,7 @@ fn fetch_manifest(url: &str) -> Result<UpdateManifest, String> {
     let out = Command::new("curl.exe")
         .args(["-sS", "-L", "-m", "25"])
         .arg(url)
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW：避免检查更新时闪控制台窗口
         .output()
         .map_err(|e| format!("无法启动 curl（需要 Windows 10 1803+）：{e}"))?;
     if !out.status.success() {
@@ -229,6 +230,7 @@ fn fetch_github_release(repo: &str) -> Result<GhRelease, String> {
     let out = Command::new("curl.exe")
         .args(["-sS", "-L", "-m", "25", "-H", "User-Agent: Digitrace"])
         .arg(&api_url)
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .output()
         .map_err(|e| format!("无法启动 curl（需要 Windows 10 1803+）：{e}"))?;
     if !out.status.success() {
@@ -262,6 +264,7 @@ fn fetch_sha256_asset(rel: &GhRelease) -> Result<String, String> {
     let out = Command::new("curl.exe")
         .args(["-sS", "-L", "-m", "20"])
         .arg(&candidate.browser_download_url)
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .output()
         .map_err(|e| format!("无法下载校验文件：{e}"))?;
     if !out.status.success() {
@@ -294,6 +297,7 @@ fn content_length(url: &str) -> u64 {
     if let Ok(out) = Command::new("curl.exe")
         .args(["-sIL", "-m", "15"])
         .arg(url)
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .output()
     {
         let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
@@ -469,6 +473,7 @@ fn download_and_verify(app: &AppHandle, url: &str, expected_sha256: &str) -> Upd
         .arg(url)
         .arg("-o")
         .arg(&tmp)
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW：下载全程无控制台窗口
         .spawn()
     {
         Ok(c) => c,
