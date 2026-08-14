@@ -1,6 +1,6 @@
 [package]
 name = "timetrace"
-version = "2.25.2"
+version = "2.26.0"
 edition = "2021"
 description = "数迹"
 

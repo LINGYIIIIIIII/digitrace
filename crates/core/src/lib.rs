@@ -34,6 +34,6 @@ pub use engine::{
     is_autostart_enabled, is_elevated_autostart_enabled, run_monitor_loop,
 };
 pub use error::AppError;
-pub use monitor::{MonitorCore, NetworkSnapshot};
+pub use monitor::{MonitorCore, NetworkSnapshot, WindowsCollector};
 pub use oplog::{clear, log_event, log_path, tail_lines};
 pub use storage::SqliteStore;

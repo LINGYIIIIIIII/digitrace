@@ -1,20 +1,19 @@
 [package]
-name = "metrics-viewer"
+name = "digitrace-monitor"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Lite realtime metrics viewer — zero-dep Win32/GDI, reads shared memory, no WebView"
+description = "Standalone headless monitor: samples hardware/temperature/network and publishes to shared memory"
 
 [[bin]]
-name = "metrics-viewer"
+name = "digitrace-monitor"
 path = "src/main.rs"
 
 [dependencies]
+timetrace-core = { path = "../core" }
 metrics = { path = "../metrics" }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
-    "Win32_Graphics_Gdi",
-    "Win32_UI_WindowsAndMessaging",
-    "Win32_System_LibraryLoader",
     "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
 ] }

@@ -15,6 +15,9 @@ use windows_sys::Win32::Graphics::Gdi::{
     OUT_DEFAULT_PRECIS, PAINTSTRUCT, SelectObject, SetBkMode, SetTextColor, TRANSPARENT, TextOutW,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Threading::{
+    CREATE_NO_WINDOW, CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DispatchMessageW,
     GetClientRect, GetMessageW, IDC_ARROW, KillTimer, LoadCursorW, MSG, PostQuitMessage,
@@ -37,6 +40,61 @@ static BRUSH_BG: OnceLock<usize> = OnceLock::new();
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// 共享内存数据是否新鲜（5 秒内有更新）。
+fn data_is_fresh() -> bool {
+    let reader = READER.lock().unwrap();
+    let Some(r) = reader.as_ref() else {
+        return false;
+    };
+    let Some(s) = r.read() else {
+        return false;
+    };
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    now_ms - s.timestamp_ms < 5000
+}
+
+/// 尝试拉起同目录下的独立监控（digitrace-monitor.exe）。
+/// 完整版正在运行时（数据新鲜）不拉起；无监控可拉时返回 false（保持现有提示）。
+fn try_launch_monitor() -> bool {
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    let Some(dir) = exe.parent() else {
+        return false;
+    };
+    let mon = dir.join("digitrace-monitor.exe");
+    if !mon.exists() {
+        return false;
+    }
+    let mut cmd = wide(&format!("\"{}\"", mon.to_string_lossy()));
+    unsafe {
+        let mut si: STARTUPINFOW = std::mem::zeroed();
+        si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+        let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
+        let ok = CreateProcessW(
+            std::ptr::null(),
+            cmd.as_mut_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            0,
+            CREATE_NO_WINDOW,
+            std::ptr::null(),
+            std::ptr::null(),
+            &si,
+            &mut pi,
+        );
+        if ok == 0 {
+            return false;
+        }
+        // 不等待监控初始化；句柄由系统回收（子进程已启动）。
+        let _ = pi;
+        true
+    }
 }
 
 fn font_head() -> HFONT {
@@ -132,7 +190,10 @@ fn build_lines() -> Vec<(String, String)> {
     let Some(r) = reader.as_ref() else {
         return vec![
             ("状态".to_string(), "数迹未运行".to_string()),
-            ("提示".to_string(), "请先启动数迹（Digitrace）".to_string()),
+            (
+                "提示".to_string(),
+                "请启动数迹完整版，或把本程序与独立监控\n放在同一目录后重开。".to_string(),
+            ),
         ];
     };
     let Some(s) = r.read() else {
@@ -258,7 +319,13 @@ fn main() {
         };
         RegisterClassW(&wc);
 
+        // 打开共享内存；若数据不新鲜（数迹完整版未运行），尝试拉起独立监控，
+        // 等它写完第一帧后再重新打开读取器。
         *READER.lock().unwrap() = metrics::MetricsReader::open();
+        if !data_is_fresh() && try_launch_monitor() {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            *READER.lock().unwrap() = metrics::MetricsReader::open();
+        }
 
         let title = wide("数迹 Lite · 实时指标");
         let hwnd = CreateWindowExW(

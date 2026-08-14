@@ -723,6 +723,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "digitrace-monitor"
+version = "0.1.0"
+dependencies = [
+ "metrics",
+ "timetrace-core",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "dirs"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3747,7 +3756,7 @@ dependencies = [
 
 [[package]]
 name = "timetrace"
-version = "2.25.2"
+version = "2.26.0"
 dependencies = [
  "anyhow",
  "chrono",

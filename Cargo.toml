@@ -3,6 +3,7 @@ members = [
     "crates/core",
     "crates/metrics",
     "crates/metrics-viewer",
+    "crates/monitor",
     "src-tauri",
 ]
 resolver = "2"

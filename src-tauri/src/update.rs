@@ -245,7 +245,7 @@ fn fetch_github_release(repo: &str) -> Result<GhRelease, String> {
 }
 
 /// 取 Release 里的安装包附件：优先选择与当前程序同名的 `.exe`；
-/// 排除 viewer / lite / update / setup / installer 等非主程序附件。
+/// 排除 viewer / lite / monitor / update / setup / installer 等非主程序附件。
 fn pick_exe_asset(rel: &GhRelease) -> Option<&GhAsset> {
     let current = std::env::current_exe()
         .ok()
@@ -258,6 +258,7 @@ fn pick_exe_asset(rel: &GhRelease) -> Option<&GhAsset> {
             n.ends_with(".exe")
                 && !n.contains("viewer")
                 && !n.contains("lite")
+                && !n.contains("monitor")
                 && !n.contains("update")
                 && !n.contains("setup")
                 && !n.contains("installer")

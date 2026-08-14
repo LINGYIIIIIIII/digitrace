@@ -22,6 +22,9 @@ use windows_sys::Win32::System::Memory::{
     CreateFileMappingW, FILE_MAP_READ, FILE_MAP_WRITE, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile,
     PAGE_READONLY, PAGE_READWRITE, UnmapViewOfFile,
 };
+use windows_sys::Win32::System::Threading::{
+    CreateMutexW, INFINITE, ReleaseMutex, WaitForSingleObject,
+};
 
 /// 魔数："DMTC"（little-endian）。
 pub const METRICS_MAGIC: u32 = 0x4354_4D44;
@@ -136,12 +139,16 @@ fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+/// 命名互斥体名称：完整版与独立监控（digitrace-monitor）可能同时写共享内存，
+/// 用「写锁」串行化 publish，并把 seq 改为读现有值 +1（全局单调），避免互相覆盖。
+const WRITE_MUTEX_NAME: &str = r"Local\DigitraceMetricsWrite";
+
 /// 发布方：写映射文件（读/写）。
 pub struct MetricsPublisher {
     _file: HANDLE,
     mapping: HANDLE,
     base: *mut u8,
-    seq: u64,
+    write_lock: HANDLE,
 }
 // 句柄与指针按独占访问使用；跨线程移动发布方是安全的。
 unsafe impl Send for MetricsPublisher {}
@@ -206,18 +213,44 @@ impl MetricsPublisher {
                 _file: file,
                 mapping,
                 base,
-                seq: 0,
+                write_lock: {
+                    // 命名互斥：完整版与独立监控并发写时串行化，失败则无锁降级。
+                    let name = to_wide(WRITE_MUTEX_NAME);
+                    CreateMutexW(std::ptr::null(), 0, name.as_ptr())
+                },
             })
         }
     }
 
+    /// 发布一帧快照。多写者（完整版 / 独立监控）并发安全：写前加互斥锁，
+    /// seq 取现有值 +1（全局单调），读方据此检测更新。
     pub fn publish(&mut self, mut snap: MetricsSnapshot) {
-        self.seq = self.seq.wrapping_add(1);
-        snap.seq = self.seq;
-        snap.timestamp_ms = now_ms();
         unsafe {
+            let lock_held = if !self.write_lock.is_null() {
+                WaitForSingleObject(self.write_lock, INFINITE) == 0
+            } else {
+                false
+            };
+
+            // 读现有快照的 seq（文件首次初始化时读到 0 → 从 1 开始）。
+            let prev = {
+                let dst = self.base.add(header_size()) as *const MetricsSnapshot;
+                let hdr = &*(self.base as *const MetricsHeader);
+                if hdr.magic == METRICS_MAGIC && hdr.version == METRICS_VERSION {
+                    (*dst).seq
+                } else {
+                    0
+                }
+            };
+            let seq = prev.wrapping_add(1);
+            snap.seq = seq;
+            snap.timestamp_ms = now_ms();
             let dst = self.base.add(header_size()) as *mut MetricsSnapshot;
             std::ptr::copy_nonoverlapping(&snap, dst, 1);
+
+            if lock_held {
+                ReleaseMutex(self.write_lock);
+            }
         }
     }
 }
@@ -225,6 +258,9 @@ impl MetricsPublisher {
 impl Drop for MetricsPublisher {
     fn drop(&mut self) {
         unsafe {
+            if !self.write_lock.is_null() {
+                CloseHandle(self.write_lock);
+            }
             if !self.base.is_null() {
                 let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
                     Value: self.base as *mut core::ffi::c_void,

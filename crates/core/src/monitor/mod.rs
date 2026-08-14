@@ -6,4 +6,4 @@ pub mod net;
 pub mod store;
 
 pub use core::MonitorCore;
-pub use net::NetworkSnapshot;
+pub use net::{NetworkSnapshot, WindowsCollector};

@@ -33,8 +33,8 @@ jobs:
         working-directory: src-tauri
         run: cargo build --release
 
-      - name: Build lite viewer
-        run: cargo build --release -p metrics-viewer
+      - name: Build lite viewer + standalone monitor
+        run: cargo build --release -p metrics-viewer -p digitrace-monitor
 
       - name: Package assets (exe + sha256)
         shell: pwsh
@@ -49,8 +49,14 @@ jobs:
           Copy-Item target/release/metrics-viewer.exe "target/release/$lite"
           $liteHash = (Get-FileHash "target/release/$lite" -Algorithm SHA256).Hash.ToLower()
           Set-Content "target/release/$lite.sha256" $liteHash -Encoding ascii
+          # 独立监控进程（无界面常驻，写共享内存；Lite 查看器可自动拉起）
+          $mon = "digitrace-monitor-$ver.exe"
+          Copy-Item target/release/digitrace-monitor.exe "target/release/$mon"
+          $monHash = (Get-FileHash "target/release/$mon" -Algorithm SHA256).Hash.ToLower()
+          Set-Content "target/release/$mon.sha256" $monHash -Encoding ascii
           Write-Host "asset=$exe sha256=$hash"
           Write-Host "asset=$lite sha256=$liteHash"
+          Write-Host "asset=$mon sha256=$monHash"
 
       - name: Publish release
         shell: pwsh
@@ -61,4 +67,4 @@ jobs:
           $ver = $tag.TrimStart('v')
           # 幂等：tag 被移动后重跑时，先删除已存在的 release 再重建，避免「同名已存在」报错。
           gh release delete $tag --repo LINGYIIIIIIII/digitrace --yes 2>$null
-          gh release create $tag "target/release/digitrace-$ver.exe" "target/release/digitrace-$ver.exe.sha256" "target/release/digitrace-lite-viewer-$ver.exe" "target/release/digitrace-lite-viewer-$ver.exe.sha256" --repo LINGYIIIIIIII/digitrace --title "数迹 v$ver" --notes "自动构建发布 v$ver（GitHub Actions）。SHA-256 见附件 digitrace-$ver.exe.sha256。"
+          gh release create $tag "target/release/digitrace-$ver.exe" "target/release/digitrace-$ver.exe.sha256" "target/release/digitrace-lite-viewer-$ver.exe" "target/release/digitrace-lite-viewer-$ver.exe.sha256" "target/release/digitrace-monitor-$ver.exe" "target/release/digitrace-monitor-$ver.exe.sha256" --repo LINGYIIIIIIII/digitrace --title "数迹 v$ver" --notes "自动构建发布 v$ver（GitHub Actions）。SHA-256 见附件 digitrace-$ver.exe.sha256。"
