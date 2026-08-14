@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# rustsec/audit-check 需要创建 check run 来报告依赖漏洞。
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   # Rust 核心 + 应用：测试 / lint / 格式 / 版本一致性 / 依赖漏洞
   # 依赖 frontend 产物：generate_context! 编译期嵌入 frontend/dist（仓库不跟踪该目录），
