@@ -1,6 +1,7 @@
 [package]
 name = "timetrace"
 version = "2.23.1"
+edition = "2021"
 description = "数迹"
 
 [build-dependencies]
