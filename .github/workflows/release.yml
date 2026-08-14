@@ -1,0 +1,55 @@
+name: Release
+
+# 推送 v* tag（如 v2.23.0）时自动构建并发布 GitHub Release。
+# 用法：git tag v2.23.0 && git push origin v2.23.0
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm run build
+
+      - name: Build release exe
+        working-directory: src-tauri
+        run: cargo build --release
+
+      - name: Package assets (exe + sha256)
+        shell: pwsh
+        run: |
+          $ver = $env:GITHUB_REF_NAME.TrimStart('v')
+          $exe = "digitrace-$ver.exe"
+          Copy-Item target/release/timetrace.exe "target/release/$exe"
+          $hash = (Get-FileHash "target/release/$exe" -Algorithm SHA256).Hash.ToLower()
+          Set-Content "target/release/$exe.sha256" $hash -Encoding ascii
+          Write-Host "asset=$exe sha256=$hash"
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $ver = $tag.TrimStart('v')
+          gh release create $tag "target/release/digitrace-$ver.exe" "target/release/digitrace-$ver.exe.sha256" --repo LINGYIIIIIIII/digitrace --title "数迹 v$ver" --notes "自动构建发布 v$ver（GitHub Actions）。SHA-256 见附件 digitrace-$ver.exe.sha256。"

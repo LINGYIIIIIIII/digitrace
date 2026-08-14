@@ -323,15 +323,6 @@
       "title": "界面缩放",
       "description": "整体缩放界面（字体、卡片、图表等比），拖动时顶部显示百分比。"
     },
-    "uiTuner": {
-      "title": "UI 调试面板",
-      "description": "在右下角显示调试滑块，可实时调整卡片圆角、间距、内边距与标题字号。"
-    },
-    "devTools": {
-      "title": "开发者工具",
-      "description": "打开浏览器开发者工具：点选界面元素即可实时查看和调整样式（UI 调试用）。",
-      "open": "打开"
-    },
     "language": {
       "title": "界面语言",
       "description": "切换界面语言，立即生效并自动记住。"
@@ -402,9 +393,12 @@
     },
     "update": {
       "autoCheck": "自动检查更新",
-      "autoCheckDescription": "启动后自动检查新版本（每天最多一次）。",
+      "autoCheckDescription": "每天最多检查一次，无固定时刻：启动后约 6 秒检查，之后每 6 小时轮询，按自然日去重。",
       "silentUpdate": "静默更新",
       "silentUpdateDescription": "后台自动下载新版本，退出应用时静默替换并重启到托盘，全程不弹确认框、不弹通知。",
+      "checkTime": "固定检查时刻",
+      "checkTimeDescription": "每天固定在该小时检查新版本；「不固定」为启动后约 6 秒 + 每 6 小时轮询（均按自然日去重）。",
+      "checkTimeNone": "不固定",
       "manifestUrl": "更新清单地址",
       "manifestUrlDescription": "JSON 格式：{ version, url, sha256, notes }。地址必须为 HTTPS，文件会做 SHA-256 校验。",
       "githubRepo": "GitHub 仓库（更新源）",

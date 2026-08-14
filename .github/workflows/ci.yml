@@ -6,20 +6,35 @@ on:
   pull_request:
 
 jobs:
-  # Rust 核心 + 应用：测试 / lint / 格式 / 依赖漏洞
+  # Rust 核心 + 应用：测试 / lint / 格式 / 版本一致性 / 依赖漏洞
+  # 依赖 frontend 产物：generate_context! 编译期嵌入 frontend/dist（仓库不跟踪该目录），
+  # 需要先下载 frontend 任务上传的产物，否则编译期宏会 panic（无 dist）。
   rust-checks:
     runs-on: windows-latest
+    needs: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
       - name: Workspace tests
         run: cargo test --workspace
       - name: Clippy
         run: cargo clippy --workspace -- -D warnings
       - name: Format check
         run: cargo fmt --all -- --check
+      - name: Version consistency
+        shell: pwsh
+        run: |
+          $cargo = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $tauri = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $changelog = (Select-String -Path CHANGELOG.md -Pattern '^## v([0-9]+\.[0-9]+\.[0-9]+)' | Select-Object -First 1).Matches[0].Groups[1].Value
+          Write-Host "Cargo.toml=$cargo tauri.conf.json=$tauri CHANGELOG=$changelog"
+          if ($cargo -ne $tauri -or $cargo -ne $changelog) { throw "版本号不一致：Cargo=$cargo tauri=$tauri changelog=$changelog" }
       - name: Dependency audit
         uses: rustsec/audit-check@v2
         with:
@@ -42,6 +57,8 @@ jobs:
         run: npm ci
       - name: Type check
         run: npx tsc --noEmit
+      - name: Unit tests
+        run: npm run test
       - name: Production build
         run: npm run build
       - uses: actions/upload-artifact@v4

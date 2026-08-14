@@ -184,11 +184,6 @@ class ApiService {
     return invoke('restart_app');
   }
 
-  /** 打开浏览器开发者工具（UI 调试：点选元素实时改样式，相当于网页版 Figma）。 */
-  async openDevTools(): Promise<void> {
-    await invoke('open_devtools');
-  }
-
   /** 前端首帧渲染完成，通知后端显示主窗口（避免启动时的纯黑首帧闪烁）。 */
   async markUiReady(): Promise<void> {
     await invoke('mark_ui_ready');

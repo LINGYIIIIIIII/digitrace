@@ -93,6 +93,11 @@ pub struct AppConfig {
     #[serde(default)]
     pub update_silent: bool,
 
+    /// 自动更新：固定检查时刻（0-23 点）。None=不固定
+    /// （启动后约 6 秒检查一次，之后每 6 小时轮询，按自然日去重）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_check_hour: Option<u32>,
+
     /// 托盘菜单显示的数据行：cpu / memory / network / active / temp。
     #[serde(default = "default_tray_items")]
     pub tray_items: Vec<String>,
@@ -176,6 +181,7 @@ impl Default for AppConfig {
             update_manifest_url: String::new(),
             update_github_repo: String::new(),
             update_silent: false,
+            update_check_hour: None,
             tray_items: default_tray_items(),
             launch_show_window: true,
             autostart_elevated: false,

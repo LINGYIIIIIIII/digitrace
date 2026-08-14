@@ -289,7 +289,6 @@ fn main() {
             api::clear_data,
             api::export_csv,
             api::restart_app,
-            api::open_devtools,
             api::mark_ui_ready,
         ])
         .build(tauri::generate_context!())

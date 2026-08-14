@@ -133,6 +133,8 @@ pub struct ConfigDto {
     pub update_github_repo: String,
     /// 自动更新：静默模式（后台下载，退出时静默替换，无弹窗）。
     pub update_silent: bool,
+    /// 自动更新：固定检查时刻（0-23 点）；null=不固定。
+    pub update_check_hour: Option<u32>,
     /// 托盘菜单显示的数据行：cpu / memory / network / active。
     pub tray_items: Vec<String>,
     /// 启动时显示主界面（关闭则隐藏到托盘）。
@@ -426,6 +428,7 @@ impl TimeTraceApi {
             update_manifest_url: config.update_manifest_url,
             update_github_repo: config.update_github_repo,
             update_silent: config.update_silent,
+            update_check_hour: config.update_check_hour,
             tray_items: config.tray_items.clone(),
             launch_show_window: config.launch_show_window,
         }
@@ -458,6 +461,14 @@ impl TimeTraceApi {
         }
         app_config.update_github_repo = repo.to_string();
         app_config.update_silent = config.update_silent;
+        if let Some(hour) = config.update_check_hour {
+            if hour > 23 {
+                return Err(anyhow::anyhow!("检查时刻必须在 0-23 之间"));
+            }
+            app_config.update_check_hour = Some(hour);
+        } else {
+            app_config.update_check_hour = None;
+        }
         let url = config.update_manifest_url.trim();
         if !url.is_empty() && !url.starts_with("https://") {
             return Err(anyhow::anyhow!("更新地址必须使用 HTTPS（安全要求）"));
@@ -1117,22 +1128,26 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
 }
 
 /// 用系统默认浏览器打开外部链接（关于页仓库链接等）。
+/// 用 ShellExecuteW 而非 cmd start：避免命令注入面与控制台窗口。
 #[tauri::command]
 pub fn open_external_url(url: String) -> Result<(), String> {
-    std::process::Command::new("cmd")
-        .args(["/c", "start", "", &url])
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW：避免打开链接时闪控制台窗口
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
-}
-
-/// 打开主窗口的浏览器开发者工具（UI 调试用：点选元素实时改样式）。
-#[tauri::command]
-pub fn open_devtools(app: tauri::AppHandle) {
-    use tauri::Manager;
-    if let Some(window) = app.get_webview_window("main") {
-        window.open_devtools();
+    let wide: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
+    let result = unsafe {
+        windows_sys::Win32::UI::Shell::ShellExecuteW(
+            std::ptr::null_mut(),
+            windows_sys::core::w!("open"),
+            wide.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+        )
+    };
+    // ShellExecuteW 返回值 > 32 表示成功（失败时是错误码）。
+    let code = result as isize;
+    if code > 32 {
+        Ok(())
+    } else {
+        Err(format!("无法打开链接（错误码 {code}）"))
     }
 }
 

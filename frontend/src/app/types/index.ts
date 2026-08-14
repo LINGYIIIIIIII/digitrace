@@ -22,6 +22,7 @@ export interface AppConfig {
   update_manifest_url: string;
   update_github_repo: string;
   update_silent: boolean;
+  update_check_hour: number | null;
   tray_items: string[];
   launch_show_window: boolean;
 }

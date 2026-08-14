@@ -324,15 +324,6 @@
       "title": "UI zoom",
       "description": "Scale the whole UI (fonts, cards, charts together); the percentage pops up at the top while dragging."
     },
-    "uiTuner": {
-      "title": "UI tuner",
-      "description": "Show debug sliders at the bottom-right to adjust card radius, spacing, padding and title size live."
-    },
-    "devTools": {
-      "title": "Developer tools",
-      "description": "Open the browser DevTools to inspect and tweak UI styles live.",
-      "open": "Open"
-    },
     "language": {
       "title": "Language",
       "description": "Switch interface language instantly; your choice is remembered."
@@ -403,9 +394,12 @@
     },
     "update": {
       "autoCheck": "Check for updates automatically",
-      "autoCheckDescription": "Check for new versions after launch (at most once per day).",
+      "autoCheckDescription": "At most once per day, at no fixed time: ~6s after launch, then polling every 6 hours, deduplicated by calendar day.",
       "silentUpdate": "Silent updates",
       "silentUpdateDescription": "Download updates in the background, replace silently on exit and restart to tray — no prompts, no notifications.",
+      "checkTime": "Fixed check time",
+      "checkTimeDescription": "Check for updates daily at this hour; \"Unfixed\" checks ~6s after launch and then every 6 hours (deduplicated by calendar day).",
+      "checkTimeNone": "Unfixed",
       "manifestUrl": "Update manifest URL",
       "manifestUrlDescription": "JSON format: { version, url, sha256, notes }. Must be HTTPS; downloads are verified against the SHA-256 hash.",
       "githubRepo": "GitHub repository (update source)",

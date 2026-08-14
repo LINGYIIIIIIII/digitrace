@@ -625,7 +625,10 @@ pub fn clear_silent_pending() {
     let _ = std::fs::remove_file(data_dir().join(SILENT_PENDING_FILE));
 }
 
-/// 启动后台自动检查（每天最多一次，仅当配置了更新源且开关打开）。
+/// 启动后台自动检查（配置了更新源且开关打开时生效）。
+/// 检查频率：固定时刻（update_check_hour，0-23 点）→ 睡到当天该小时；
+/// 否则每 6 小时轮询。两者都按自然日去重（每天最多检查一次），
+/// 且启动后约 6 秒会先查一次（当天未查过时）。
 pub fn start_background_check(app: AppHandle) {
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(6));
@@ -650,9 +653,32 @@ pub fn start_background_check(app: AppHandle) {
                     let _ = std::fs::write(data_dir().join(LAST_CHECK_FILE), today);
                 }
             }
-            std::thread::sleep(Duration::from_secs(6 * 3600));
+            // 下一次检查间隔：固定时刻 → 睡到当天该小时（已过则明天）；
+            // 否则每 6 小时轮询。
+            let wait = if let Some(hour) = config.update_check_hour.filter(|h| *h <= 23) {
+                sleep_until_hour(hour)
+            } else {
+                Duration::from_secs(6 * 3600)
+            };
+            std::thread::sleep(wait);
         }
     });
+}
+
+/// 距下一次「指定小时（本地时间，加 5 分钟余量）」的等待时长。
+fn sleep_until_hour(hour: u32) -> Duration {
+    let now = chrono::Local::now();
+    let mut next = now
+        .date_naive()
+        .and_hms_opt(hour, 5, 0)
+        .unwrap_or_else(|| now.date_naive().and_hms_opt(0, 0, 0).unwrap())
+        .and_local_timezone(chrono::Local)
+        .earliest()
+        .unwrap_or(now);
+    if next <= now {
+        next += chrono::Duration::days(1);
+    }
+    (next - now).to_std().unwrap_or(Duration::from_secs(3600))
 }
 
 /// 启动时读取上次更新结果（ok/fail:...），返回给调用方处理（显示通知）。

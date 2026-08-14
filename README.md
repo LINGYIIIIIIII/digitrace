@@ -62,6 +62,17 @@ cd src-tauri && cargo build --release
 # 产物：target/release/timetrace.exe
 ```
 
+## 自动更新机制
+
+- 更新源二选一（优先 GitHub 仓库）：设置页配置公开仓库（如 `LINGYIIIIIIII/digitrace`，
+  直接读取最新 Release，tag 作版本、`.exe` 附件作安装包、`.sha256` 附件作强校验），
+  或更新清单 JSON（`{version, url, sha256, notes}`，必须 HTTPS）
+- 检查时机：**每天最多一次，无固定时刻**——启动后约 6 秒检查一次（当天未检查过时），
+  之后每 6 小时轮询，按自然日去重
+- 校验：下载后强制 SHA-256 校验，缺失或失败一律拒绝安装
+- 静默模式（设置 → 更新 → 静默更新）：后台自动下载，退出应用时静默替换并以托盘模式重启，
+  全程无弹窗、无通知；关闭时保持手动确认流程
+
 ## 许可证
 
 [GNU General Public License v3.0](LICENSE)

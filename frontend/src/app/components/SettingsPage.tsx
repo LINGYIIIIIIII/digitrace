@@ -10,6 +10,7 @@ import {
   FolderOpen,
   Globe,
   CodeXml,
+  Clock,
   GitBranch,
   Languages,
   Monitor,
@@ -171,9 +172,6 @@ export default function SettingsPage() {
   const [autoStart, setAutoStart] = useState(false);
   const [elevatedAutoStart, setElevatedAutoStart] = useState(false);
   const [logPath, setLogPath] = useState('');
-  const [uiTunerEnabled, setUiTunerEnabled] = useState(
-    () => typeof window !== 'undefined' && window.localStorage.getItem('digitrace.ui-tuner.enabled') === '1',
-  );
   const [uiZoom, setUiZoom] = useState(() => (typeof window !== 'undefined' ? loadUiZoom() : 100));
 const [clearOpen, setClearOpen] = useState(false);
 const [clearing, setClearing] = useState(false);
@@ -624,29 +622,6 @@ const [driverStatus, setDriverStatus] = useState<CpuTemperatureDto | null>(null)
                 />
               </div>
             </SettingRow>
-            <SettingRow
-              icon={<SlidersHorizontal className="h-4 w-4" />}
-              title={t('settings.uiTuner.title')}
-              description={t('settings.uiTuner.description')}
-            >
-              <ToggleSwitch
-                enabled={uiTunerEnabled}
-                onChange={(v) => {
-                  setUiTunerEnabled(v);
-                  window.localStorage.setItem('digitrace.ui-tuner.enabled', v ? '1' : '0');
-                  window.dispatchEvent(new Event('ui-tuner-toggle'));
-                }}
-              />
-            </SettingRow>
-            <SettingRow
-              icon={<CodeXml className="h-4 w-4" />}
-              title={t('settings.devTools.title')}
-              description={t('settings.devTools.description')}
-            >
-              <Button size="sm" variant="outline" onClick={() => void apiService.openDevTools()}>
-                {t('settings.devTools.open')}
-              </Button>
-            </SettingRow>
           </Card>
 
           {/* 顶栏显示 */}
@@ -818,6 +793,30 @@ const [driverStatus, setDriverStatus] = useState<CpuTemperatureDto | null>(null)
                       enabled={config?.update_silent ?? false}
                       onChange={(v) => void patchConfig({ update_silent: v })}
                     />
+                  </SettingRow>
+                </div>
+                <div className="border-t border-border/60">
+                  <SettingRow
+                    icon={<Clock className="h-4 w-4" />}
+                    title={t('settings.update.checkTime')}
+                    description={t('settings.update.checkTimeDescription')}
+                  >
+                    <div className="w-36">
+                      <Select
+                        value={config?.update_check_hour != null ? String(config.update_check_hour) : ''}
+                        onChange={(v) =>
+                          void patchConfig({ update_check_hour: v === '' ? null : Number(v) })
+                        }
+                        options={[
+                          { value: '', label: t('settings.update.checkTimeNone') },
+                          ...Array.from({ length: 24 }, (_, h) => ({
+                            value: String(h),
+                            label: `${String(h).padStart(2, '0')}:00`,
+                          })),
+                        ]}
+                        size="sm"
+                      />
+                    </div>
                   </SettingRow>
                 </div>
                 <div className="border-t border-border/60 px-5 py-4">

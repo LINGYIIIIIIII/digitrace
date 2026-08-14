@@ -15,7 +15,6 @@ import HealthPage from './components/HealthPage';
 import NetworkPage from './components/NetworkPage';
 import SettingsPage from './components/SettingsPage';
 import TakeoverDialog from './components/TakeoverDialog';
-import UiTunerPanel from './components/UiTunerPanel';
 import DashboardPage from './components/dashboard/DashboardPage';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { useAppStore } from './store/app-store';
@@ -80,7 +79,6 @@ export default function Home() {
         aboutContent={<AboutPanel />}
       />
       <TakeoverDialog />
-      <UiTunerPanel />
     </>
   );
 }
