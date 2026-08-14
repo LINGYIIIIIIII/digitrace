@@ -264,13 +264,27 @@ fn fetch_sha256_asset(rel: &GhRelease) -> Result<String, String> {
             "该 Release 缺少 .sha256 校验文件（安全要求，拒绝更新；请在发布时一并上传）".to_string()
         })?;
     let out = Command::new("curl.exe")
-        .args(["-sS", "-L", "-m", "20"])
+        .args([
+            "-sS",
+            "-L",
+            "-m",
+            "30",
+            "--retry",
+            "2",
+            "--connect-timeout",
+            "10",
+        ])
         .arg(&candidate.browser_download_url)
         .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .output()
         .map_err(|e| format!("无法下载校验文件：{e}"))?;
     if !out.status.success() {
-        return Err("下载 .sha256 校验文件失败".to_string());
+        let detail = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if detail.is_empty() {
+            "下载 .sha256 校验文件失败（网络异常）".to_string()
+        } else {
+            format!("下载 .sha256 校验文件失败：{detail}")
+        });
     }
     let text = String::from_utf8_lossy(&out.stdout);
     let hash = text
@@ -378,16 +392,21 @@ fn evaluate_github(repo: &str, dto: &mut UpdateCheckDto) -> UpdateCheckDto {
         dto.message = Some("该 Release 没有 .exe 安装包".to_string());
         return std::mem::take(dto);
     };
-    let sha = match fetch_sha256_asset(&rel) {
-        Ok(s) => s,
-        Err(e) => {
-            dto.message = Some(e);
-            return std::mem::take(dto);
-        }
-    };
+    // 检查阶段只确认校验文件存在，不实际下载（下载阶段才拉取并强校验），
+    // 避免"检查更新"被网络波动卡住。
+    let has_sha = rel.assets.iter().any(|a| {
+        let n = a.name.to_ascii_lowercase();
+        n.ends_with(".sha256") || n.ends_with(".sha256.txt")
+    });
+    if !has_sha {
+        dto.message = Some(
+            "该 Release 缺少 .sha256 校验文件（安全要求，拒绝更新；请在发布时一并上传）"
+                .to_string(),
+        );
+        return std::mem::take(dto);
+    }
     dto.latest_version = tag_to_version_str(&rel.tag_name);
     dto.url = exe.browser_download_url.clone();
-    dto.sha256 = sha;
     dto.notes = rel.body.trim().chars().take(500).collect();
     dto.has_update = version_from_tag(&rel.tag_name) > parse_version(&dto.current_version);
     std::mem::take(dto)
