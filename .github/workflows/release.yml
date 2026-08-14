@@ -65,6 +65,25 @@ jobs:
         run: |
           $tag = $env:GITHUB_REF_NAME
           $ver = $tag.TrimStart('v')
+          # 从 CHANGELOG.md 提取本版本的发布说明（## vX.Y.Z 到下一个 ## v 之间的条目）。
+          $notes = @()
+          $lines = Get-Content "CHANGELOG.md" -Encoding UTF8
+          $in = $false
+          foreach ($line in $lines) {
+            if ($line -match "^## v$([regex]::Escape($ver))\b") { $in = $true; continue }
+            if ($in -and $line -match "^## v") { break }
+            if ($in) { $notes += $line }
+          }
+          $body = @("# 数迹 v$ver", "", ($notes -join "`n").Trim(), "",
+            "---",
+            "自动构建发布（GitHub Actions）。SHA-256 见附件 digitrace-$ver.exe.sha256。",
+            "组件：`digitrace-$ver.exe`（完整版）· `digitrace-monitor-$ver.exe`（独立监控）· `digitrace-lite-viewer-$ver.exe`（Lite 查看器）") -join "`n"
+          # v2.26.0 之前没有独立监控 / Lite 查看器，组件行只对 v2.26.0+ 展示。
+          if ([version]$ver -lt [version]"2.26.0") {
+            $body = @("# 数迹 v$ver", "", ($notes -join "`n").Trim(), "",
+              "---",
+              "自动构建发布（GitHub Actions）。SHA-256 见附件 digitrace-$ver.exe.sha256。") -join "`n"
+          }
           # 幂等：tag 被移动后重跑时，先删除已存在的 release 再重建，避免「同名已存在」报错。
           gh release delete $tag --repo LINGYIIIIIIII/digitrace --yes 2>$null
-          gh release create $tag "target/release/digitrace-$ver.exe" "target/release/digitrace-$ver.exe.sha256" "target/release/digitrace-lite-viewer-$ver.exe" "target/release/digitrace-lite-viewer-$ver.exe.sha256" "target/release/digitrace-monitor-$ver.exe" "target/release/digitrace-monitor-$ver.exe.sha256" --repo LINGYIIIIIIII/digitrace --title "数迹 v$ver" --notes "自动构建发布 v$ver（GitHub Actions）。SHA-256 见附件 digitrace-$ver.exe.sha256。"
+          gh release create $tag "target/release/digitrace-$ver.exe" "target/release/digitrace-$ver.exe.sha256" "target/release/digitrace-lite-viewer-$ver.exe" "target/release/digitrace-lite-viewer-$ver.exe.sha256" "target/release/digitrace-monitor-$ver.exe" "target/release/digitrace-monitor-$ver.exe.sha256" --repo LINGYIIIIIIII/digitrace --title "数迹 v$ver" --notes $body
