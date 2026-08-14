@@ -121,7 +121,7 @@ fn default_refresh_interval() -> u64 {
     10
 }
 fn default_live_refresh_interval() -> u64 {
-    2
+    1
 }
 fn default_true() -> bool {
     true
@@ -164,7 +164,7 @@ impl Default for AppConfig {
             poll_interval_ms: 3000,
             idle_threshold_minutes: 5,
             refresh_interval_seconds: 10,
-            live_refresh_interval_seconds: 2,
+            live_refresh_interval_seconds: 1,
             minimize_to_tray: true,
             start_minimized: false,
             auto_start_tracking: true,

@@ -116,7 +116,7 @@ function CardShell({
 
 function useNetworkLive(): { snapshot: NetworkSnapshotDto | null; points: { t: string; down: number; up: number }[] } {
   const { config } = useAppStore(useShallow((s) => ({ config: s.config })));
-  const refreshSeconds = config?.live_refresh_interval_seconds ?? 2;
+  const refreshSeconds = config?.live_refresh_interval_seconds ?? 1;
   const [snapshot, setSnapshot] = useState<NetworkSnapshotDto | null>(null);
   const [points, setPoints] = useState<{ t: string; down: number; up: number }[]>([]);
   const pointsRef = useRef<{ t: string; down: number; up: number }[]>([]);
@@ -155,7 +155,7 @@ function useNetworkLive(): { snapshot: NetworkSnapshotDto | null; points: { t: s
 
 function useHardwareData(): { snapshot: HardwareSnapshotDto | null; temp: TemperatureSnapshotDto | null } {
   const { config } = useAppStore(useShallow((s) => ({ config: s.config })));
-  const refreshSeconds = config?.live_refresh_interval_seconds ?? 2;
+  const refreshSeconds = config?.live_refresh_interval_seconds ?? 1;
   const [snapshot, setSnapshot] = useState<HardwareSnapshotDto | null>(null);
   const [temp, setTemp] = useState<TemperatureSnapshotDto | null>(null);
 
@@ -186,6 +186,8 @@ function useHardwareData(): { snapshot: HardwareSnapshotDto | null; temp: Temper
 }
 
 function useHealthData(): HealthSnapshotDto | null {
+  const { config } = useAppStore(useShallow((s) => ({ config: s.config })));
+  const refreshSeconds = config?.live_refresh_interval_seconds ?? 1;
   const [snap, setSnap] = useState<HealthSnapshotDto | null>(null);
 
   useEffect(() => {
@@ -199,7 +201,7 @@ function useHealthData(): HealthSnapshotDto | null {
       }
     };
     void tick();
-    const timer = window.setInterval(() => void tick(), 2000);
+    const timer = window.setInterval(() => void tick(), refreshSeconds * 1000);
     return () => {
       disposed = true;
       window.clearInterval(timer);
@@ -211,14 +213,54 @@ function useHealthData(): HealthSnapshotDto | null {
 
 /* ────────────────────────── 内容片段（供聚合卡复用） ────────────────────────── */
 
-function StatsContent({ data, size }: { data: DashboardDataDto | null; size: CardSize }) {
+/**
+ * 使用时间秒级跳动：每 1s 拉取「进行中的活跃会话已持续秒数」（空闲时后端返回 0，
+ * 自动停止），叠加到基础统计上。只重渲染所在卡片，不影响其它卡片。
+ */
+function useLiveActive(tickable: boolean, base: number | undefined): number | undefined {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!tickable) {
+      setElapsed(0);
+      return;
+    }
+    let disposed = false;
+    const tick = () => {
+      void apiService
+        .getActiveSessionElapsed()
+        .then((v) => {
+          if (!disposed) setElapsed(v);
+        })
+        .catch(() => {});
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [tickable]);
+  return tickable && base !== undefined ? base + elapsed : undefined;
+}
+
+function StatsContent({
+  data,
+  size,
+  liveActive,
+}: {
+  data: DashboardDataDto | null;
+  size: CardSize;
+  /** 秒级跳动的活跃秒数（含进行中会话），为空时回落为 data 的统计值。 */
+  liveActive?: number;
+}) {
   const { t } = useTranslation();
   const compact = size === 'sm';
+  const activeSeconds = liveActive ?? data?.active_seconds ?? 0;
   const tiles = [
     {
       icon: <Timer className="h-4 w-4" />,
       label: t('dashboard.stats.active'),
-      value: data ? (compact ? formatDurationCompact(data.active_seconds) : formatDuration(data.active_seconds)) : '--',
+      value: data ? (compact ? formatDurationCompact(activeSeconds) : formatDuration(activeSeconds)) : '--',
       accent: true,
     },
     {
@@ -782,11 +824,21 @@ function HealthContent() {
 
 /* ────────────────────────── 独立卡片 ────────────────────────── */
 
-export function StatsCard({ data, size }: { data: DashboardDataDto | null; size: CardSize }) {
+export function StatsCard({
+  data,
+  size,
+  tickable,
+}: {
+  data: DashboardDataDto | null;
+  size: CardSize;
+  /** 统计范围包含今天时启用秒级跳动（历史范围不跳）。 */
+  tickable?: boolean;
+}) {
   const { t } = useTranslation();
+  const liveActive = useLiveActive(tickable ?? false, data?.active_seconds);
   return (
     <CardShell title={t('dashboard.cards.stats')}>
-      <StatsContent data={data} size={size} />
+      <StatsContent data={data} size={size} liveActive={liveActive} />
     </CardShell>
   );
 }
@@ -883,23 +935,26 @@ export function DurationAggCard({
   data,
   hourly,
   size,
+  tickable,
 }: {
   data: DashboardDataDto | null;
   hourly: number[];
   size: CardSize;
+  tickable?: boolean;
 }) {
   const { t } = useTranslation();
+  const liveActive = useLiveActive(tickable ?? false, data?.active_seconds);
   return (
     <CardShell title={t('dashboard.cards.durationAgg')}>
       {size === 'sm' ? (
         <div className="flex items-center justify-between rounded-lg border border-border/60 px-2.5 py-2">
           <span className="text-[11px] text-muted-foreground">{t('dashboard.stats.active')}</span>
           <span className="text-sm font-semibold tabular-nums">
-            {data ? formatDurationCompact(data.active_seconds) : '--'}
+            {data ? formatDurationCompact(liveActive ?? data.active_seconds) : '--'}
           </span>
         </div>
       ) : (
-        <StatsContent data={data} size={size} />
+        <StatsContent data={data} size={size} liveActive={liveActive} />
       )}
       <div className="my-2.5 border-t border-border/60" />
       <HourlyContent hourly={hourly} size={size} />

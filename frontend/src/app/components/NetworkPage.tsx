@@ -44,7 +44,7 @@ const RANGE_MODES: RangeMode[] = ['24h', 'today', 'session', '7d', '30d'];
 export default function NetworkPage() {
   const { t } = useTranslation();
   const { config } = useAppStore(useShallow((s) => ({ config: s.config })));
-  const refreshSeconds = config?.live_refresh_interval_seconds ?? 2;
+  const refreshSeconds = config?.live_refresh_interval_seconds ?? 1;
   const [snapshot, setSnapshot] = useState<NetworkSnapshotDto | null>(null);
   const [rangeMode, setRangeMode] = useState<RangeMode>('7d');
   const [historyDown, setHistoryDown] = useState<HistoryPointDto[]>([]);

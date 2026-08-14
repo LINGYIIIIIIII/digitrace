@@ -137,6 +137,10 @@ export default function DashboardPage() {
     };
   }, [year]);
 
+  // 使用时间秒级跳动：由时长卡片内部每 1s 取「进行中的活跃会话已持续秒数」
+  // （空闲时后端返回 0，自动停止）。仅当范围包含今天时才允许跳动（历史范围不跳）。
+  const liveTickable = end >= todayStr(config);
+
   const openEditor = useCallback(() => {
     setEditLayout(JSON.parse(JSON.stringify(layout)) as DashboardLayout);
     setEditOpen(true);
@@ -189,7 +193,7 @@ export default function DashboardPage() {
     (id: CardId, size: CardSize) => {
       switch (id) {
         case 'stats':
-          return <StatsCard data={data} size={size} />;
+          return <StatsCard data={data} size={size} tickable={liveTickable} />;
         case 'appUsage':
           return <AppUsageCard data={data} focus={focus} size={size} />;
         case 'hourly':
@@ -223,7 +227,7 @@ export default function DashboardPage() {
         case 'health':
           return <HealthCard />;
         case 'durationAgg':
-          return <DurationAggCard data={data} hourly={hourly} size={size} />;
+          return <DurationAggCard data={data} hourly={hourly} size={size} tickable={liveTickable} />;
         case 'netAgg':
           return <NetAggCard size={size} />;
         case 'hwAgg':
@@ -234,7 +238,7 @@ export default function DashboardPage() {
           return null;
       }
     },
-    [data, focus, hourly, calendarUsage, calendarMax, t],
+    [data, focus, hourly, calendarUsage, calendarMax, liveTickable, t],
   );
 
   if (error) {

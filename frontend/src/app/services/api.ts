@@ -80,6 +80,10 @@ class ApiService {
     return invoke<[string, number][]>('get_year_heatmap', { year });
   }
 
+  async getActiveSessionElapsed(): Promise<number> {
+    return invoke<number>('get_active_session_elapsed');
+  }
+
   async getHourApps(date: string, hour: number): Promise<AppUsageDto[]> {
     return invoke<AppUsageDto[]>('get_hour_apps', { date, hour });
   }

@@ -487,7 +487,7 @@ const [driverStatus, setDriverStatus] = useState<CpuTemperatureDto | null>(null)
                 >
                   <div className="w-32">
                     <Select
-                      value={String(config?.live_refresh_interval_seconds ?? 2)}
+                      value={String(config?.live_refresh_interval_seconds ?? 1)}
                       onChange={(v) => patchConfig({ live_refresh_interval_seconds: Number(v) })}
                       options={LIVE_REFRESH_INTERVAL_OPTIONS}
                       size="sm"

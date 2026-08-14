@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { apiService } from '../services/api';
+import { useAppStore } from '../store/app-store';
 import type { NetAppsSnapshotDto } from '../types';
 import { Card } from './ui/index';
 import AppIcon from './dashboard/AppIcon';
@@ -34,6 +36,8 @@ export default function NetAppsCard({
   compact?: boolean;
 }) {
   const { t } = useTranslation();
+  const { config } = useAppStore(useShallow((s) => ({ config: s.config })));
+  const refreshSeconds = config?.live_refresh_interval_seconds ?? 1;
   const [snap, setSnap] = useState<NetAppsSnapshotDto | null>(null);
 
   useEffect(() => {
@@ -47,12 +51,12 @@ export default function NetAppsCard({
       }
     };
     void tick();
-    const timer = window.setInterval(() => void tick(), 2000);
+    const timer = window.setInterval(() => void tick(), refreshSeconds * 1000);
     return () => {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [refreshSeconds]);
 
   const apps = snap?.apps ?? [];
   const visible = apps.slice(0, limit);

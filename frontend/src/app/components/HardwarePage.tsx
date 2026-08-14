@@ -62,7 +62,7 @@ const MAX_POINTS = 3600;
 export default function HardwarePage() {
   const { t } = useTranslation();
   const { config } = useAppStore(useShallow((s) => ({ config: s.config })));
-  const refreshSeconds = config?.live_refresh_interval_seconds ?? 2;
+  const refreshSeconds = config?.live_refresh_interval_seconds ?? 1;
 
   const [snapshot, setSnapshot] = useState<HardwareSnapshotDto | null>(null);
   const [temp, setTemp] = useState<TemperatureSnapshotDto | null>(null);

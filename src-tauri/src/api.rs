@@ -799,6 +799,17 @@ impl TimeTraceApi {
         DataStore::get_active_by_date(&*self.db, start, end)
     }
 
+    /// 当前进行中的活跃会话已持续秒数（无活跃会话或处于空闲时返回 0），
+    /// 供仪表盘「使用时间」秒级跳动；空闲/离开时自动停止增长。
+    pub fn get_active_session_elapsed(&self) -> i64 {
+        if let Some(s) = DataStore::get_active_session(&*self.db) {
+            if !s.is_idle {
+                return (chrono::Utc::now() - s.started_at).num_seconds().max(0);
+            }
+        }
+        0
+    }
+
     /// Apps active within a specific hour of a date (seconds per app).
     pub fn get_hour_apps(&self, date: String, hour: u32) -> Vec<AppUsageDto> {
         DataStore::get_hour_apps(&*self.db, parse_date(&date), hour)
@@ -1062,6 +1073,11 @@ pub fn get_day_hourly(state: State<'_, AppState>, date: String) -> Vec<i64> {
 #[tauri::command]
 pub fn get_year_heatmap(state: State<'_, AppState>, year: i32) -> Vec<(String, i64)> {
     lock(&state).get_year_heatmap(year)
+}
+
+#[tauri::command]
+pub fn get_active_session_elapsed(state: State<'_, AppState>) -> i64 {
+    lock(&state).get_active_session_elapsed()
 }
 
 #[tauri::command]
