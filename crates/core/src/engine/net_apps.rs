@@ -259,8 +259,7 @@ impl NetAppMonitor {
         self.sys.refresh_processes_specifics(
             sysinfo::ProcessesToUpdate::All,
             true,
-            sysinfo::ProcessRefreshKind::nothing()
-                .with_exe(sysinfo::UpdateKind::OnlyIfNotSet),
+            sysinfo::ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::OnlyIfNotSet),
         );
         let sys = &self.sys;
 
