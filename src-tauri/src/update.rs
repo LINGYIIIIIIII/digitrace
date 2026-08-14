@@ -584,7 +584,11 @@ fn spawn_installer_ps(to_tray: bool) -> Result<(), String> {
     let cur_path = current.to_string_lossy().replace('\'', "''");
     let result_file = data_dir().join(RESULT_FILE);
     let result_path = result_file.to_string_lossy().replace('\'', "''");
-    let relaunch_arg = if to_tray { "'--tray'" } else { "'--show-window'" };
+    let relaunch_arg = if to_tray {
+        "'--tray'"
+    } else {
+        "'--show-window'"
+    };
     let ps = format!(
         "$d=(Get-Date).AddSeconds(25); while((Get-Date) -lt $d){{ $p=Get-Process | Where-Object {{ $_.Path -eq '{cur_path}' }}; if(-not $p){{ break }}; Start-Sleep -Milliseconds 300 }}; try {{ Copy-Item -LiteralPath '{new_path}' -Destination '{cur_path}' -Force; Set-Content -LiteralPath '{result_path}' -Value 'ok' }} catch {{ Set-Content -LiteralPath '{result_path}' -Value ('fail:' + $_.Exception.Message) }}; Start-Process -FilePath '{cur_path}' -ArgumentList {relaunch_arg}"
     );
