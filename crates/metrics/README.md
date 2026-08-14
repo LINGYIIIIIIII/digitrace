@@ -44,5 +44,30 @@ if (hdr->magic == METRICS_MAGIC && hdr->version == METRICS_VERSION) {
 
 ## 历史数据
 
-实时值走共享内存；历史数据仍读 `%APPDATA%\TimeTrace\time.db`（使用统计）与
-`monitor.db`（网络分钟聚合）。硬件/温度暂无历史表（后续可扩展）。
+实时值走共享内存；历史数据读 `%APPDATA%\TimeTrace\` 下的 SQLite：
+
+- `time.db`：使用统计（`usage_sessions` 会话、`page_visits` 窗口标题）
+- `monitor.db`：**分钟级聚合历史**（表 `metric_samples`）
+
+`monitor.db` 的 `metric_samples` 结构：`(day, minute, metric, avg, max, samples)`，
+主键 `(day, minute, metric)`，`day` 为 `YYYY-MM-DD`，`minute` 为当天的分钟序号（0-1439）。
+
+内置 metric 名（外部工具可按名查询历史）：
+
+| metric | 含义 |
+|---|---|
+| `net_down_bps` / `net_up_bps` | 网络上下行速率（B/s） |
+| `cpu_percent` | CPU 总占用（0-100） |
+| `mem_percent` / `mem_used_mb` | 内存百分比 / 已用 MB |
+| `cpu_temp_c` | CPU 温度 ℃（无传感器时不写） |
+| `gpu_usage_percent` / `gpu_temp_c` | GPU 占用 / 温度（无 N 卡时不写） |
+
+示例（SQL）：
+
+```sql
+-- 最近 24 小时 CPU 占用
+SELECT day, minute, avg, max FROM metric_samples
+WHERE metric = 'cpu_percent' AND day >= date('now', 'localtime', '-1 day')
+ORDER BY day, minute;
+```
+

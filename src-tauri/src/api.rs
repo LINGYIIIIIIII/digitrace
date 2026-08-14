@@ -861,6 +861,23 @@ impl TimeTraceApi {
         };
         snap.set_active_app(&active_app);
         publisher.publish(snap);
+
+        // 硬件/温度指标分钟级历史（复用 monitor.db 的 metric_samples 桶；
+        // 无效值 -1 跳过，避免污染历史）。
+        let mut items: Vec<(&str, f64)> = Vec::with_capacity(6);
+        items.push(("cpu_percent", cpu));
+        items.push(("mem_percent", mem_percent));
+        items.push(("mem_used_mb", mem_used_mb));
+        if cpu_temp >= 0.0 {
+            items.push(("cpu_temp_c", cpu_temp));
+        }
+        if gpu_usage >= 0.0 {
+            items.push(("gpu_usage_percent", gpu_usage));
+        }
+        if gpu_temp >= 0.0 {
+            items.push(("gpu_temp_c", gpu_temp));
+        }
+        self.monitor_core.record_extra_metrics(&items);
     }
 
     /// Apps active within a specific hour of a date (seconds per app).

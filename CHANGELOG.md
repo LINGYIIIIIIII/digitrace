@@ -2,6 +2,11 @@
 
 按版本归档每次功能更新与修复（最新在前）。纯构建产物更新不单独记录。
 
+## v2.25.1（2026-08-14）
+- 新增硬件/温度**分钟级历史**：CPU 占用、内存、CPU 温度、GPU 占用/温度随实时采集写入
+  `monitor.db` 的 `metric_samples`（复用网络分钟桶机制，无传感器时自动跳过）
+- 外部工具可直接按 metric 名查询历史（见 `crates/metrics/README.md`）
+
 ## v2.25.0（2026-08-14）
 - 新增**共享内存实时指标**模块（`crates/metrics`）：数迹每秒把 CPU/GPU/内存/温度/网络速率/
   前台应用写入 `%APPDATA%\TimeTrace\metrics.map`（内存映射，零拷贝），任何程序用 `metrics.h`

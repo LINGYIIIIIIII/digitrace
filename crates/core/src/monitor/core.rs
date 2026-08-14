@@ -158,6 +158,36 @@ impl MonitorCore {
             })
             .unwrap_or_default()
     }
+
+    /// 批量记录自定义指标到分钟级历史（供硬件/温度等扩展，如 cpu_percent、cpu_temp_c）。
+    /// 值由调用方保证有效（无效值不调用即可）。
+    pub fn record_extra_metrics(&self, items: &[(&str, f64)]) {
+        if items.is_empty() {
+            return;
+        }
+        if let Ok(mut store) = self.store.lock() {
+            let config = crate::AppConfig::load();
+            let now_fixed = crate::time_util::now_in_for(&config.timezone);
+            for (metric, value) in items {
+                store.record(&now_fixed, metric, *value);
+            }
+        }
+    }
+
+    /// 指定指标的历史（分钟级 avg/max）。mode：24h / today / session / 7d / 30d。
+    pub fn metric_history(&self, metric: &str, mode: &str) -> Vec<crate::monitor::store::Sample> {
+        self.store
+            .lock()
+            .ok()
+            .and_then(|s| {
+                let config = crate::AppConfig::load();
+                let (start_day, start_minute, end_day) =
+                    crate::time_util::history_window(&config, mode, self.started_at);
+                s.query_window(metric, &start_day, start_minute, &end_day)
+                    .ok()
+            })
+            .unwrap_or_default()
+    }
 }
 
 impl Drop for MonitorCore {
