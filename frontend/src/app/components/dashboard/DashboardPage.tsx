@@ -41,7 +41,9 @@ import {
   resolveTemplate,
   saveLayout,
   setCardSize,
+  SIZE_CYCLE,
   spanClass,
+  TEMPLATE_IDS,
   toggleCard,
 } from './dashboard-layout';
 import type { CardId, CardSize, DashboardLayout } from './dashboard-layout';
@@ -85,6 +87,27 @@ export default function DashboardPage() {
   const [dropTargetId, setDropTargetId] = useState<CardId | null>(null);
   const [resizeId, setResizeId] = useState<CardId | null>(null);
   const resizeRef = useRef<{ id: CardId; startX: number; startSize: CardSize } | null>(null);
+  // 网格行高：等于列宽 × 0.92（近正方形单元），由容器宽度实时计算。
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [tileH, setTileH] = useState(120);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const update = () => {
+      const gap = 16; // --ui-gap
+      const w = el.clientWidth;
+      const col = (w - gap * 2) / 3;
+      setTileH(Math.max(88, Math.round(col * 0.92)));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // 编辑缩略图行高：弹窗固定 max-w-lg(512px)，列宽 ≈ (512 - p-6*2 - 容器p-2*2 - gap*2)/3 ≈ 145px，
+  // 行高 = 列宽 × 0.92（与主网格同比例 1:1）。用固定值避免 ResizeObserver 时序抖动。
+  const [thumbH] = useState(() => Math.round(145 * 0.92));
   const [data, setData] = useState<DashboardDataDto | null>(null);
   const [hourly, setHourly] = useState<number[]>([]);
   const [calendarUsage, setCalendarUsage] = useState<Map<string, number>>(new Map());
@@ -154,19 +177,18 @@ export default function DashboardPage() {
     setEditOpen(false);
   }, [editLayout]);
 
-  // 缩略图右下角手柄：拖动调整卡片档位（小 → 中 → 大，按位移吸附）。
+  // 缩略图右下角手柄：拖动按位移循环切换尺寸档位（1x1 → 1x2 → 2x1 → 2x2 → 3x2）。
   useEffect(() => {
     if (!resizeId) return;
     const onMove = (e: PointerEvent) => {
       const r = resizeRef.current;
       if (!r) return;
       const dx = e.clientX - r.startX;
-      const order: CardSize[] = ['sm', 'md', 'lg'];
-      const idx = order.indexOf(r.startSize);
+      const idx = SIZE_CYCLE.indexOf(r.startSize);
       let target = idx;
-      if (dx > 36) target = Math.min(2, idx + Math.floor(dx / 36));
+      if (dx > 36) target = Math.min(SIZE_CYCLE.length - 1, idx + Math.floor(dx / 36));
       else if (dx < -36) target = Math.max(0, idx - Math.floor(-dx / 36));
-      const next = order[target];
+      const next = SIZE_CYCLE[target];
       setEditLayout((prev) => (prev ? setCardSize(prev, r.id, next) : prev));
     };
     const onUp = () => {
@@ -208,16 +230,16 @@ export default function DashboardPage() {
           return (
             <NetAppsCard
               title={t('dashboard.netApps.title')}
-              limit={size === 'sm' ? 4 : size === 'md' ? 8 : 12}
-              compact={size === 'sm'}
+              limit={size === '1x1' ? 4 : size === '1x2' ? 6 : size === '3x1' ? 12 : 8}
+              compact={size === '1x1' || size === '1x2'}
             />
           );
         case 'attrUsage':
           return (
             <AttributedUsageCard
               title={t('network.attrTitle')}
-              limit={size === 'sm' ? 5 : 15}
-              compact={size === 'sm'}
+              limit={size === '1x1' ? 5 : size === '3x2' || size === '3x3' ? 15 : 8}
+              compact={size === '1x1' || size === '1x2'}
             />
           );
         case 'hardwareGauges':
@@ -279,20 +301,17 @@ export default function DashboardPage() {
         </Button>
       </div>
 
-      {/* 卡片网格：三档尺寸（小=1/3、中=2/3、大=整行） */}
-      <div className="grid grid-cols-1 gap-[var(--ui-gap)] md:grid-cols-3">
+      {/* 卡片网格：九宫格单元网格（3 列，行高统一 --tile-h，dense 自动回填空洞） */}
+      <div
+        ref={gridRef}
+        className="grid grid-cols-1 gap-[var(--ui-gap)] md:grid-cols-3 [grid-auto-flow:row_dense]"
+        style={{ ['--tile-h' as string]: `${tileH}px`, gridAutoRows: 'var(--tile-h)' }}
+      >
         {layout.order.map((id) => {
           const card = layout.cards[id];
           if (!card.visible) return null;
           return (
-            <div
-              key={id}
-              className={clsx(
-                'min-w-0',
-                spanClass(card.size),
-                card.size === 'sm' && 'aspect-[1/1] self-start min-h-0',
-              )}
-            >
+            <div key={id} className={clsx('min-h-0', spanClass(card.size))}>
               {renderCard(id, card.size)}
             </div>
           );
@@ -307,9 +326,12 @@ export default function DashboardPage() {
             <DialogDescription>{t('dashboard.editDescription')}</DialogDescription>
           </DialogHeader>
 
-          {/* 可视化缩略图：拖动换位置，拖右下角调大小，点眼睛隐藏 */}
+          {/* 可视化缩略图：同款九宫格网格（行高与主网格同比例 1:1），拖动换位置，拖右下角调尺寸，点眼睛隐藏 */}
           <div className="rounded-xl border border-border/60 bg-muted/25 p-2">
-            <div className="grid grid-cols-3 gap-1.5">
+            <div
+              className="grid grid-cols-3 gap-1.5 [grid-auto-flow:row_dense]"
+              style={{ gridAutoRows: `${thumbH}px` }}
+            >
               {editLayout?.order.map((id) => {
                 const card = editLayout.cards[id];
                 if (!card.visible) return null;
@@ -343,7 +365,7 @@ export default function DashboardPage() {
                       setDropTargetId(null);
                     }}
                     className={clsx(
-                      'relative flex h-12 min-w-0 items-center justify-center gap-1 rounded-lg border text-[10px] font-medium transition-colors',
+                      'relative flex min-h-0 items-center justify-center gap-1 rounded-lg border text-[10px] font-medium transition-colors',
                       spanClass(card.size),
                       dragId === id
                         ? 'border-primary/50 bg-primary/15 opacity-50'
@@ -418,10 +440,28 @@ export default function DashboardPage() {
           </p>
 
           <DialogFooter>
-            <Button variant="ghost" size="sm" className="mr-auto" onClick={() => setEditLayout(resolveTemplate('compact'))}>
-              <RotateCcw className="h-3.5 w-3.5" />
-              {t('dashboard.resetLayout')}
-            </Button>
+            <div className="mr-auto flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-muted-foreground">{t('dashboard.templateTitle')}</span>
+              {(TEMPLATE_IDS).map((tid) => (
+                <button
+                  key={tid}
+                  type="button"
+                  onClick={() => setEditLayout(resolveTemplate(tid))}
+                  className={clsx(
+                    'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                    editLayout?.template === tid
+                      ? 'border-primary/30 bg-primary/10 text-primary'
+                      : 'border-border/70 bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground',
+                  )}
+                >
+                  {t(`dashboard.templates.${tid}`)}
+                </button>
+              ))}
+              <Button variant="ghost" size="sm" onClick={() => setEditLayout(resolveTemplate('balanced'))}>
+                <RotateCcw className="h-3.5 w-3.5" />
+                {t('dashboard.resetLayout')}
+              </Button>
+            </div>
             <Button variant="outline" onClick={() => setEditOpen(false)}>
               {t('common.cancel')}
             </Button>

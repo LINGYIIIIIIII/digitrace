@@ -1,9 +1,10 @@
-// 仪表盘布局模型（v3）
-// - 三档尺寸：小=1/3 列、中=2/3 列、大=整行
-// - 布局固定为「紧凑型」：三列小中卡为主，信息密度最高
+// 仪表盘布局模型（v4 · 九宫格单元网格）
+// - 网格：3 列，行高统一（--tile-h ≈ 列宽），grid-auto-flow: row dense 自动回填空洞
+// - 卡片尺寸 = 列 × 行 单元数，7 档：
+//     1x1 一格 | 1x2 竖条 | 2x1 横条 | 2x2 标准 | 3x1 整行窄 | 3x2 整行高 | 3x3 整屏
 // - 聚合卡与组成小卡互斥：启用聚合卡会自动隐藏其成员卡
 
-export type CardSize = 'sm' | 'md' | 'lg';
+export type CardSize = '1x1' | '1x2' | '2x1' | '2x2' | '3x1' | '3x2' | '3x3';
 export type TemplateId = 'balanced' | 'compact' | 'showcase' | 'classic';
 
 export type CardId =
@@ -33,14 +34,14 @@ export interface CardState {
 export type CardStates = Record<CardId, CardState>;
 
 export interface DashboardLayout {
-  version: 3;
+  version: 4;
   template: TemplateId;
   cards: CardStates;
   order: CardId[];
 }
 
 export const LAYOUT_KEY = 'digitrace.dashboard.layout';
-export const LAYOUT_VERSION = 3;
+export const LAYOUT_VERSION = 4;
 
 export const ALL_CARD_IDS: CardId[] = [
   'stats',
@@ -76,22 +77,53 @@ export const AGGREGATE_CONFLICTS: Partial<Record<AggregateId, AggregateId[]>> = 
   tempAgg: ['hwAgg'],
 };
 
+/** 尺寸循环（编辑手柄按此顺序切换：小 → 中 → 大）。 */
+export const SIZE_CYCLE: CardSize[] = ['1x1', '1x2', '2x1', '2x2', '3x2'];
+
+/** 尺寸 → 列数 / 行数。 */
+export const SIZE_COLS: Record<CardSize, number> = {
+  '1x1': 1,
+  '1x2': 1,
+  '2x1': 2,
+  '2x2': 2,
+  '3x1': 3,
+  '3x2': 3,
+  '3x3': 3,
+};
+export const SIZE_ROWS: Record<CardSize, number> = {
+  '1x1': 1,
+  '1x2': 2,
+  '2x1': 1,
+  '2x2': 2,
+  '3x1': 1,
+  '3x2': 2,
+  '3x3': 3,
+};
+
+/** 内容密度档（供卡片组件复用现有 sm/md/lg 内部布局）。 */
+export type Density = 'sm' | 'md' | 'lg';
+export function densityOf(size: CardSize): Density {
+  if (size === '1x1') return 'sm';
+  if (size === '1x2' || size === '2x1' || size === '2x2') return 'md';
+  return 'lg';
+}
+
 const DEFAULT_SIZES: Record<CardId, CardSize> = {
-  stats: 'md',
-  appUsage: 'md',
-  hourly: 'md',
-  calendar: 'md',
-  networkStats: 'sm',
-  networkLive: 'md',
-  netApps: 'md',
-  attrUsage: 'lg',
-  hardwareGauges: 'md',
-  diskTemp: 'sm',
-  health: 'sm',
-  durationAgg: 'lg',
-  netAgg: 'lg',
-  hwAgg: 'lg',
-  tempAgg: 'lg',
+  stats: '2x1',
+  appUsage: '2x2',
+  hourly: '2x1',
+  calendar: '1x2',
+  networkStats: '2x2',
+  networkLive: '2x1',
+  netApps: '2x2',
+  attrUsage: '2x2',
+  hardwareGauges: '2x2',
+  diskTemp: '1x1',
+  health: '1x1',
+  durationAgg: '3x2',
+  netAgg: '3x2',
+  hwAgg: '3x2',
+  tempAgg: '3x2',
 };
 
 interface TemplatePreset {
@@ -102,58 +134,82 @@ interface TemplatePreset {
 
 export const TEMPLATE_IDS: TemplateId[] = ['balanced', 'compact', 'showcase', 'classic'];
 
+/** 每套模板都是「完整矩形」：单元总数 = 3 的倍数 × 整数行，无洞无溢。 */
 const TEMPLATES: Record<TemplateId, TemplatePreset> = {
-  // 均衡型（Bento 风）：大卡带动节奏，小卡凑行
+  // 均衡型（Bento 风）：整行大卡 + 2:1/1:2 穿插，行行填满
   balanced: {
-    order: ['durationAgg', 'calendar', 'health', 'appUsage', 'hwAgg', 'netAgg'],
+    order: ['durationAgg', 'appUsage', 'calendar', 'hwAgg', 'netAgg', 'networkLive', 'health'],
     sizes: {
-      durationAgg: 'lg',
-      calendar: 'md',
-      health: 'sm',
-      appUsage: 'md',
-      hwAgg: 'sm',
-      netAgg: 'md',
+      durationAgg: '3x2',
+      appUsage: '2x2',
+      calendar: '1x2',
+      hwAgg: '3x2',
+      netAgg: '3x2',
+      networkLive: '2x1',
+      health: '1x1',
     },
-    visible: ['durationAgg', 'calendar', 'health', 'appUsage', 'hwAgg', 'netAgg'],
+    visible: ['durationAgg', 'appUsage', 'calendar', 'hwAgg', 'netAgg', 'networkLive', 'health'],
   },
-  // 紧凑型：三列小中卡为主，信息密度最高
+  // 紧凑型：信息密度最高，小格 + 标准格填满
   compact: {
-    order: ['stats', 'networkStats', 'health', 'appUsage', 'calendar', 'hourly', 'netApps', 'hardwareGauges'],
+    order: [
+      'stats',
+      'health',
+      'appUsage',
+      'calendar',
+      'hourly',
+      'diskTemp',
+      'networkStats',
+      'networkLive',
+      'netApps',
+    ],
     sizes: {
-      stats: 'sm',
-      networkStats: 'sm',
-      health: 'sm',
-      appUsage: 'md',
-      calendar: 'sm',
-      hourly: 'sm',
-      netApps: 'sm',
-      hardwareGauges: 'lg',
+      stats: '2x1',
+      health: '1x1',
+      appUsage: '2x2',
+      calendar: '1x2',
+      hourly: '2x1',
+      diskTemp: '1x1',
+      networkStats: '2x2',
+      networkLive: '1x2',
+      netApps: '3x1',
     },
-    visible: ['stats', 'networkStats', 'health', 'appUsage', 'calendar', 'hourly', 'netApps', 'hardwareGauges'],
+    visible: [
+      'stats',
+      'health',
+      'appUsage',
+      'calendar',
+      'hourly',
+      'diskTemp',
+      'networkStats',
+      'networkLive',
+      'netApps',
+    ],
   },
   // 展示型：每行一张大卡，聚焦单个数据
   showcase: {
     order: ['durationAgg', 'calendar', 'appUsage', 'netAgg', 'hwAgg'],
     sizes: {
-      durationAgg: 'lg',
-      calendar: 'lg',
-      appUsage: 'lg',
-      netAgg: 'lg',
-      hwAgg: 'lg',
+      durationAgg: '3x2',
+      calendar: '3x2',
+      appUsage: '3x2',
+      netAgg: '3x2',
+      hwAgg: '3x2',
     },
     visible: ['durationAgg', 'calendar', 'appUsage', 'netAgg', 'hwAgg'],
   },
-  // 经典型：左 1/3 日历 + 右 2/3 堆叠（贴近旧版布局）
+  // 经典型：左 1 列竖条 + 右 2 列堆叠（贴近旧版布局）
   classic: {
-    order: ['stats', 'calendar', 'appUsage', 'netApps', 'hourly'],
+    order: ['calendar', 'appUsage', 'stats', 'hourly', 'health', 'netApps'],
     sizes: {
-      stats: 'lg',
-      calendar: 'sm',
-      appUsage: 'md',
-      netApps: 'md',
-      hourly: 'md',
+      calendar: '1x2',
+      appUsage: '2x2',
+      stats: '3x1',
+      hourly: '2x2',
+      health: '1x2',
+      netApps: '3x2',
     },
-    visible: ['stats', 'calendar', 'appUsage', 'netApps', 'hourly'],
+    visible: ['calendar', 'appUsage', 'stats', 'hourly', 'health', 'netApps'],
   },
 };
 
@@ -169,10 +225,19 @@ export function resolveTemplate(template: TemplateId): DashboardLayout {
   return { version: LAYOUT_VERSION, template, cards, order: [...preset.order] };
 }
 
+/** 网格 span 类（3 列 × 统一行高）。用字面量映射，避免 Tailwind JIT purge 掉动态类名。 */
+const SPAN_CLASSES: Record<CardSize, string> = {
+  '1x1': 'col-span-1 row-span-1',
+  '1x2': 'col-span-1 row-span-2',
+  '2x1': 'col-span-2 row-span-1',
+  '2x2': 'col-span-2 row-span-2',
+  '3x1': 'col-span-3 row-span-1',
+  '3x2': 'col-span-3 row-span-2',
+  '3x3': 'col-span-3 row-span-3',
+};
+
 export function spanClass(size: CardSize): string {
-  if (size === 'lg') return 'md:col-span-3';
-  if (size === 'md') return 'md:col-span-2';
-  return 'md:col-span-1';
+  return SPAN_CLASSES[size];
 }
 
 export function isAggregate(id: CardId): id is AggregateId {
@@ -231,39 +296,50 @@ export function insertCardBefore(
   return { ...prev, order };
 }
 
+/** 旧档位（v3 sm/md/lg）→ 新单元尺寸。 */
+function migrateSize(old: string | undefined): CardSize {
+  if (old === 'sm') return '1x1';
+  if (old === 'lg') return '3x2';
+  return '2x2';
+}
+
 function normalizeCurrent(raw: unknown): DashboardLayout | null {
   const obj = raw as Partial<DashboardLayout> | null;
   if (!obj || !obj.cards || !Array.isArray(obj.order)) return null;
   const cards = {} as CardStates;
   for (const id of ALL_CARD_IDS) {
     const st = (obj.cards as Partial<CardStates>)[id];
-    const size: CardSize = st && ['sm', 'md', 'lg'].includes(st.size) ? st.size : DEFAULT_SIZES[id];
+    const size: CardSize =
+      st && SIZE_COLS[st.size as CardSize] ? (st.size as CardSize) : DEFAULT_SIZES[id];
     cards[id] = { size, visible: st ? !!st.visible : false };
   }
   const order = [...(obj.order as CardId[])];
   for (const id of ALL_CARD_IDS) {
     if (!order.includes(id)) order.push(id);
   }
-  return { version: LAYOUT_VERSION, template: 'compact', cards, order };
+  return { version: LAYOUT_VERSION, template: 'balanced', cards, order };
 }
 
 /**
  * 读取已保存布局。
- * - 无历史布局 → 紧凑型默认；
- * - 旧版布局 → 迁移到紧凑型，仅保留原有「显示/隐藏」勾选（尺寸与顺序用紧凑型默认）；
- * - 当前版本（v3）→ 原样还原（含尺寸与顺序）。
+ * - 无历史布局 → 均衡型默认；
+ * - v1/v2/v3 旧布局 → 迁移到均衡型：尺寸按旧档位映射，保留「显示/隐藏」与顺序；
+ * - 当前版本（v4）→ 原样还原（含尺寸与顺序）。
  */
 export function loadLayout(): DashboardLayout {
   try {
     const raw = JSON.parse(window.localStorage.getItem(LAYOUT_KEY) ?? 'null') as unknown;
-    const obj = raw as { version?: number; cards?: unknown; show?: unknown; order?: unknown } | null;
+    const obj = raw as
+      | { version?: number; cards?: unknown; show?: unknown; order?: unknown }
+      | null;
     if (obj && typeof obj === 'object') {
       if (obj.version === LAYOUT_VERSION && obj.cards && Array.isArray(obj.order)) {
         const current = normalizeCurrent(raw);
         if (current) return current;
       }
-      // 旧版布局（v1 show/order 或 v2 cards）：迁移到紧凑型，保留勾选。
+      // 旧版布局（v1 show/order、v2/v3 cards）：迁移到均衡型，保留勾选与顺序。
       const visible: Partial<Record<CardId, boolean>> = {};
+      const sizeMap: Partial<Record<CardId, CardSize>> = {};
       const show = obj.show as Record<string, boolean> | undefined;
       if (show) {
         for (const id of ALL_CARD_IDS) {
@@ -274,20 +350,34 @@ export function loadLayout(): DashboardLayout {
       if (cards) {
         for (const id of ALL_CARD_IDS) {
           const st = cards[id];
-          if (st && typeof st.visible === 'boolean') visible[id] = st.visible;
+          if (st) {
+            if (typeof st.visible === 'boolean') visible[id] = st.visible;
+            // v3 的 sm/md/lg 映射到新档位；v4 尺寸直接保留。
+            const sz = st.size as string | undefined;
+            if (sz && (SIZE_COLS[sz as CardSize] || ['sm', 'md', 'lg'].includes(sz))) {
+              sizeMap[id] = SIZE_COLS[sz as CardSize] ? (sz as CardSize) : migrateSize(sz);
+            }
+          }
         }
       }
-      const base = resolveTemplate('compact');
+      const base = resolveTemplate('balanced');
       const merged = { ...base.cards };
+      const order = Array.isArray(obj.order)
+        ? [...(obj.order as CardId[])]
+        : [...base.order];
       for (const id of ALL_CARD_IDS) {
         if (visible[id] !== undefined) merged[id] = { ...merged[id], visible: visible[id] };
+        if (sizeMap[id] !== undefined) merged[id] = { ...merged[id], size: sizeMap[id] };
       }
-      return { version: LAYOUT_VERSION, template: 'compact', cards: merged, order: [...base.order] };
+      for (const id of ALL_CARD_IDS) {
+        if (!order.includes(id)) order.push(id);
+      }
+      return { version: LAYOUT_VERSION, template: 'balanced', cards: merged, order };
     }
   } catch {
     /* 损坏数据回退默认 */
   }
-  return resolveTemplate('compact');
+  return resolveTemplate('balanced');
 }
 
 export function saveLayout(layout: DashboardLayout): void {

@@ -85,14 +85,43 @@ function formatBytesPerSecond(bytes: number): string {
   return `${value.toFixed(1)} ${units[unit]}/s`;
 }
 
-const CHART_H: Record<CardSize, string> = { sm: 'h-20', md: 'h-32', lg: 'h-44' };
+const CHART_H: Record<CardSize, string> = {
+  '1x1': 'h-20',
+  '1x2': 'h-28',
+  '2x1': 'h-24',
+  '2x2': 'h-32',
+  '3x1': 'h-36',
+  '3x2': 'h-44',
+  '3x3': 'h-56',
+};
 // 曲线图高度：小卡填满卡片剩余高度（随窗口纵向拉伸）、中卡 16:9、大卡 21:9。
 const CHART_ASPECT: Record<CardSize, string> = {
-  sm: 'flex-1 min-h-0',
-  md: 'aspect-[16/9]',
-  lg: 'aspect-[21/9]',
+  '1x1': 'flex-1 min-h-0',
+  '1x2': 'flex-1 min-h-0',
+  '2x1': 'aspect-[16/9]',
+  '2x2': 'aspect-[16/9]',
+  '3x1': 'aspect-[21/9]',
+  '3x2': 'aspect-[21/9]',
+  '3x3': 'aspect-[21/9]',
 };
-const LIST_LIMIT: Record<CardSize, number> = { sm: 6, md: 8, lg: 12 };
+const LIST_LIMIT: Record<CardSize, number> = {
+  '1x1': 4,
+  '1x2': 6,
+  '2x1': 6,
+  '2x2': 8,
+  '3x1': 10,
+  '3x2': 12,
+  '3x3': 16,
+};
+
+/** 窄格（宽 1 列）：内容用紧凑密度。 */
+function isNarrow(size: CardSize): boolean {
+  return size === '1x1' || size === '1x2';
+}
+/** 宽格（宽 3 列）：内容用舒展密度。 */
+function isWide(size: CardSize): boolean {
+  return size === '3x1' || size === '3x2' || size === '3x3';
+}
 const WEEK_LABELS = ['1', '2', '3', '4', '5', '6', '日'];
 
 function CardShell({
@@ -254,7 +283,7 @@ function StatsContent({
   liveActive?: number;
 }) {
   const { t } = useTranslation();
-  const compact = size === 'sm';
+  const compact = isNarrow(size);
   const activeSeconds = liveActive ?? data?.active_seconds ?? 0;
   const tiles = [
     {
@@ -279,11 +308,11 @@ function StatsContent({
   // 小卡：三行竖排（图标 + 名称 + 数字横排），避免三列把时长挤出去。
   if (compact) {
     return (
-      <div className="flex h-full flex-col gap-1.5">
+      <div className="flex h-full flex-col justify-center gap-1.5">
         {tiles.map((tile) => (
           <div
             key={tile.label}
-            className="flex min-h-0 flex-1 items-center gap-2 rounded-lg border border-border/60 px-2 py-1.5"
+            className="flex items-center gap-2 rounded-lg border border-border/60 px-2 py-1.5"
           >
             <span
               className={clsx(
@@ -338,7 +367,7 @@ function AppUsageContent({
   const [appHourly, setAppHourly] = useState<number[]>([]);
 
   const limit = LIST_LIMIT[size];
-  const chartCount = size === 'sm' ? 6 : 10;
+  const chartCount = isNarrow(size) ? 6 : 10;
 
   const topApps = useMemo(() => {
     if (!data) return [];
@@ -377,7 +406,7 @@ function AppUsageContent({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className={size === 'sm' ? 'min-h-0 flex-1' : CHART_H[size]}>
+      <div className={isNarrow(size) ? 'min-h-0 flex-1' : CHART_H[size]}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={topApps.slice(0, chartCount).map((a) => ({ name: a.app_name, 时长: a.active_seconds }))}
@@ -408,12 +437,12 @@ function AppUsageContent({
                 : 'border-transparent hover:border-border hover:bg-accent/50',
             )}
           >
-            <AppIcon exePath={app.exe_path} size={size === 'sm' ? 18 : 20} />
+            <AppIcon exePath={app.exe_path} size={isNarrow(size) ? 18 : 20} />
             <span className="min-w-0 flex-1 truncate">{app.app_name}</span>
-            <span className={clsx('shrink-0 tabular-nums text-muted-foreground', size === 'sm' ? 'text-xs' : 'text-sm')}>
+            <span className={clsx('shrink-0 tabular-nums text-muted-foreground', isNarrow(size) ? 'text-xs' : 'text-sm')}>
               {formatDuration(app.active_seconds)}
             </span>
-            <span className={clsx('h-1 shrink-0 overflow-hidden rounded-full bg-muted', size === 'sm' ? 'w-8' : 'w-12')}>
+            <span className={clsx('h-1 shrink-0 overflow-hidden rounded-full bg-muted', isNarrow(size) ? 'w-8' : 'w-12')}>
               <span
                 className="block h-full rounded-full bg-primary"
                 style={{ width: `${Math.round((app.active_seconds / maxAppSeconds) * 100)}%` }}
@@ -433,7 +462,7 @@ function AppUsageContent({
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
-          {size !== 'sm' && appHourly.length > 0 && (
+          {!isNarrow(size) && appHourly.length > 0 && (
             <div className="h-20">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={appHourly.map((v, i) => ({ h: i, v }))}>
@@ -551,16 +580,16 @@ function CalendarContent({
   }, [focus]);
 
   return (
-    <div className={clsx('flex h-full flex-col', size === 'lg' && 'mx-auto max-w-[420px]')}>
-      <div className={clsx('mb-1.5 text-center text-muted-foreground', size === 'sm' ? 'text-xs' : 'text-sm')}>
+    <div className={clsx('flex h-full flex-col', isWide(size) && 'mx-auto max-w-[420px]')}>
+      <div className={clsx('mb-1.5 text-center text-muted-foreground', isNarrow(size) ? 'text-xs' : 'text-sm')}>
         {Number(focus.split('-')[0])} 年 {Number(focus.split('-')[1])} 月
       </div>
-      <div className={clsx('grid grid-cols-7 text-center text-muted-foreground', size === 'sm' ? 'gap-0.5 text-xs' : 'gap-1 text-sm')}>
+      <div className={clsx('grid grid-cols-7 text-center text-muted-foreground', isNarrow(size) ? 'gap-0.5 text-xs' : 'gap-1 text-sm')}>
         {WEEK_LABELS.map((w) => (
           <span key={w}>{w}</span>
         ))}
       </div>
-      <div className={clsx('mt-0.5 grid grid-cols-7', size === 'sm' ? 'min-h-0 flex-1 grid-rows-6 gap-0.5' : 'gap-1')}>
+      <div className={clsx('mt-0.5 grid grid-cols-7', isNarrow(size) ? 'min-h-0 flex-1 grid-rows-6 gap-0.5' : 'gap-1')}>
         {days.map((date, i) =>
           date ? (
             <button
@@ -569,7 +598,7 @@ function CalendarContent({
               onClick={() => void handleSelectDate(date)}
               className={clsx(
                 'flex items-center justify-center rounded-md font-medium transition-colors',
-                size === 'sm' ? 'h-full text-xs' : 'h-8 text-sm',
+                isNarrow(size) ? 'h-full text-xs' : 'h-8 text-sm',
                 heatColor(usage.get(date) ?? 0, max),
               )}
             >
@@ -604,7 +633,7 @@ function CalendarContent({
 
 function NetworkStatsContent({ snapshot, size }: { snapshot: NetworkSnapshotDto | null; size: CardSize }) {
   const { t } = useTranslation();
-  const compact = size === 'sm';
+  const compact = isNarrow(size);
   const tiles = [
     { icon: <ArrowDown className="h-4 w-4" />, label: t('network.download'), value: formatBytesPerSecond(snapshot?.download_bytes_per_sec ?? 0), color: '#1E88E5' },
     { icon: <ArrowUp className="h-4 w-4" />, label: t('network.upload'), value: formatBytesPerSecond(snapshot?.upload_bytes_per_sec ?? 0), color: '#FB8C00' },
@@ -646,7 +675,7 @@ function NetworkStatsContent({ snapshot, size }: { snapshot: NetworkSnapshotDto 
 
 function NetworkLiveContent({ points, size }: { points: { t: string; down: number; up: number }[]; size: CardSize }) {
   const { t } = useTranslation();
-  const axisWidth = size === 'sm' ? 62 : 74;
+  const axisWidth = isNarrow(size) ? 62 : 74;
   return (
     <div className={CHART_ASPECT[size]}>
       {points.length === 0 ? (
@@ -685,7 +714,7 @@ function HardwareGaugesContent({
   const memoryPercent = snapshot
     ? (snapshot.memory_used_bytes / Math.max(1, snapshot.memory_total_bytes)) * 100
     : 0;
-  const compact = size === 'sm';
+  const compact = isNarrow(size);
   // 所有档位都是三列横排：小卡为迷你表盘，中/大卡为标准表盘。
   const labelCls = compact ? 'text-[11px]' : 'text-xs';
   const iconCls = compact ? 'h-3 w-3' : 'h-3.5 w-3.5';
@@ -806,9 +835,9 @@ function HealthContent() {
     },
   ];
   return (
-    <div className="flex h-full flex-col gap-1">
+    <div className="flex h-full flex-col justify-center gap-1.5">
       {rows.map((row) => (
-        <div key={row.label} className="flex min-h-0 flex-1 items-center gap-2 rounded-lg border border-border/60 px-2 py-1.5">
+        <div key={row.label} className="flex items-center gap-2 rounded-lg border border-border/60 px-2 py-1.5">
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-primary/15 bg-primary/10 text-primary">
             {row.icon}
           </span>
@@ -946,7 +975,7 @@ export function DurationAggCard({
   const liveActive = useLiveActive(tickable ?? false, data?.active_seconds);
   return (
     <CardShell title={t('dashboard.cards.durationAgg')}>
-      {size === 'sm' ? (
+      {isNarrow(size) ? (
         <div className="flex items-center justify-between rounded-lg border border-border/60 px-2.5 py-2">
           <span className="text-[11px] text-muted-foreground">{t('dashboard.stats.active')}</span>
           <span className="text-sm font-semibold tabular-nums">
@@ -967,7 +996,7 @@ export function NetAggCard({ size }: { size: CardSize }) {
   const { snapshot, points } = useNetworkLive();
   return (
     <CardShell title={t('dashboard.cards.netAgg')}>
-      {size === 'sm' ? (
+      {isNarrow(size) ? (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-2.5 py-2 text-[11px]">
           <span className="inline-flex items-center gap-1 text-[#1E88E5]">
             <ArrowDown className="h-3 w-3" />
@@ -998,7 +1027,7 @@ export function HwAggCard({ size }: { size: CardSize }) {
     <CardShell title={t('dashboard.cards.hwAgg')}>
       <HardwareGaugesContent snapshot={snapshot} temp={temp} size={size} />
       <div className="my-2.5 border-t border-border/60" />
-      {size === 'sm' ? (
+      {isNarrow(size) ? (
         <div className="flex items-center justify-between rounded-lg border border-border/60 px-2.5 py-2">
           <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <Thermometer className="h-3 w-3 text-primary" />
@@ -1025,7 +1054,7 @@ export function TempAggCard({ size }: { size: CardSize }) {
     (acc, d) => (d.temp_celsius != null ? Math.max(acc ?? -Infinity, d.temp_celsius) : acc),
     null,
   );
-  const compact = size === 'sm';
+  const compact = isNarrow(size);
   const labelCls = compact ? 'text-[11px]' : 'text-xs';
   const iconCls = compact ? 'h-3 w-3' : 'h-3.5 w-3.5';
   const numCls = compact ? 'text-xl' : 'text-2xl';
