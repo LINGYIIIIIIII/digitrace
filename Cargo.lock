@@ -726,6 +726,7 @@ dependencies = [
 name = "digitrace-monitor"
 version = "0.1.0"
 dependencies = [
+ "dirs",
  "metrics",
  "timetrace-core",
  "windows-sys 0.61.2",

@@ -622,7 +622,7 @@ export default function CalendarPage() {
 
         <AnimatePresence mode="wait" initial={false}>
           {view === 'year' ? (
-            /* 年视图：按月份排列的装饰卡片，铺满页面、排出间距 */
+            /* 年视图：初始简洁样式（月份标题 + 热力格），铺满页面 + 间距 */
             <motion.div
               key="year"
               className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3"
@@ -641,24 +641,24 @@ export default function CalendarPage() {
                   }}
                 >
                   {yearMonths.map(({ month: m, cells, total }) => {
-                    // 卡片内：内边距 8 + 月份标题 22 + 热力格 7×6（间距 2）
-                    const heatW = Math.max(4, Math.floor((yearSlot.w - 16 - 12) / 7));
-                    const heatH = Math.max(4, Math.floor((yearSlot.h - 16 - 22 - 10) / 6));
+                    // 卡片内：内边距 12 + 月份标题行 18 + 热力格 7×6（间距 1）
+                    const heatW = Math.max(4, Math.floor((yearSlot.w - 12 - 6) / 7));
+                    const heatH = Math.max(4, Math.floor((yearSlot.h - 12 - 18 - 5) / 6));
                     return (
                       <button
                         key={m}
                         type="button"
                         onClick={() => goToMonth(m)}
-                        className="group overflow-hidden rounded-xl border border-border/60 bg-card text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
+                        className="rounded-xl border border-border/60 p-1.5 text-left transition-colors hover:border-primary/30 hover:bg-accent/40"
                       >
-                        <div className="flex items-baseline justify-between gap-1 border-b border-border/40 bg-muted/30 px-2.5 py-1.5">
-                          <span className="text-xs font-semibold text-foreground">{m + 1} 月</span>
+                        <div className="mb-1.5 flex items-baseline justify-between gap-1 px-0.5">
+                          <span className="text-xs font-semibold">{m + 1} 月</span>
                           <span className="truncate text-[10px] tabular-nums text-muted-foreground">
                             {formatDuration(total)}
                           </span>
                         </div>
                         <div
-                          className="grid gap-0.5 p-2"
+                          className="grid gap-px"
                           style={{
                             gridTemplateColumns: `repeat(7, ${heatW}px)`,
                             gridAutoRows: `${heatH}px`,
@@ -668,10 +668,7 @@ export default function CalendarPage() {
                             date ? (
                               <span
                                 key={date}
-                                className={
-                                  'rounded-[3px] transition-colors group-hover:rounded ' +
-                                  heatColor(usage.get(date) ?? 0, max)
-                                }
+                                className={'block rounded-[2px] ' + heatColor(usage.get(date) ?? 0, max)}
                               />
                             ) : (
                               <span key={`empty-${i}`} />
