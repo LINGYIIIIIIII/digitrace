@@ -15,9 +15,12 @@ import {
   HeartPulse,
   Hourglass,
   MemoryStick,
+  RotateCcw,
   Thermometer,
   Timer,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import {
   Bar,
@@ -85,6 +88,16 @@ function formatBytesPerSecond(bytes: number): string {
   return `${value.toFixed(1)} ${units[unit]}/s`;
 }
 
+/** 速率坐标轴取整：向上取到 1/2/5×10ⁿ 档位（避免 3.7MB/s 这种碎刻度）。 */
+function niceCeil(v: number): number {
+  if (v <= 0) return 0;
+  const exp = Math.floor(Math.log10(v));
+  const base = 10 ** exp;
+  const m = v / base;
+  const nice = m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10;
+  return nice * base;
+}
+
 const CHART_H: Record<CardSize, string> = {
   '1x1': 'h-20',
   '1x2': 'h-28',
@@ -93,16 +106,6 @@ const CHART_H: Record<CardSize, string> = {
   '3x1': 'h-36',
   '3x2': 'h-44',
   '3x3': 'h-56',
-};
-// 曲线图高度：小卡填满卡片剩余高度（随窗口纵向拉伸）、中卡 16:9、大卡 21:9。
-const CHART_ASPECT: Record<CardSize, string> = {
-  '1x1': 'flex-1 min-h-0',
-  '1x2': 'flex-1 min-h-0',
-  '2x1': 'aspect-[16/9]',
-  '2x2': 'aspect-[16/9]',
-  '3x1': 'aspect-[21/9]',
-  '3x2': 'aspect-[21/9]',
-  '3x3': 'aspect-[21/9]',
 };
 const LIST_LIMIT: Record<CardSize, number> = {
   '1x1': 4,
@@ -506,7 +509,8 @@ function AppUsageContent({
 function HourlyContent({ hourly, size }: { hourly: number[]; size: CardSize }) {
   const { t } = useTranslation();
   return (
-    <div className={CHART_ASPECT[size]}>
+    // 填满卡片剩余高度（不再按宽度锁 16:9/21:9——九宫格行高有限，固定比例会超高裁掉横轴）。
+    <div className="min-h-0 flex-1">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={hourly.map((v, i) => ({ h: i, v }))} margin={{ left: 0, right: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
@@ -676,25 +680,96 @@ function NetworkStatsContent({ snapshot, size }: { snapshot: NetworkSnapshotDto 
 
 function NetworkLiveContent({ points, size }: { points: { t: string; down: number; up: number }[]; size: CardSize }) {
   const { t } = useTranslation();
-  const axisWidth = isNarrow(size) ? 62 : 74;
+  const compact = isNarrow(size);
+  const axisWidth = compact ? 46 : 74;
+  // 纵轴缩放系数：1 = 自适应；>1 = 放大（纵轴范围变小）；<1 = 缩小。滚轮/按钮调整，双击复位。
+  const [zoom, setZoom] = useState(1);
+  const chartRef = useRef<HTMLDivElement | null>(null);
+  // 滚轮作用于纵轴：上滚放大、下滚缩小。显式 passive:false 以阻止页面滚动。
+  useEffect(() => {
+    const el = chartRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      setZoom((z) => Math.min(8, Math.max(0.25, z * (e.deltaY < 0 ? 1.18 : 1 / 1.18))));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+  // 纵轴自动缩放：按数据峰值取整 + 10% 余量（1/2/5×10ⁿ 档位），最小 512KB/s 兜底
+  // （空闲时曲线也有可看的基线）；滚轮系数叠加在自动档之上。
+  const baseMax = useMemo(() => {
+    let max = 0;
+    for (const p of points) {
+      if (p.down > max) max = p.down;
+      if (p.up > max) max = p.up;
+    }
+    return Math.max(niceCeil(max * 1.1), 512 * 1024);
+  }, [points]);
+  const yMax = Math.max(baseMax / zoom, 64 * 1024);
+  const zoomBy = useCallback((f: number) => setZoom((z) => Math.min(8, Math.max(0.25, z * f))), []);
   return (
-    <div className={CHART_ASPECT[size]}>
+    <div
+      ref={chartRef}
+      onDoubleClick={() => setZoom(1)}
+      title={t('network.liveZoomHint')}
+      className="relative min-h-0 flex-1"
+    >
       {points.length === 0 ? (
         <p className="flex flex-1 items-center justify-center text-sm text-muted-foreground">{t('network.noHistory')}</p>
       ) : (
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={points} margin={{ left: 0, right: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-            <XAxis dataKey="t" tick={{ fontSize: 9 }} interval={9} />
-            <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => formatBytesPerSecond(Number(v))} width={axisWidth} />
-            <Tooltip
-              cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}
-              content={<ChartTooltip valueFormatter={(v) => formatBytesPerSecond(Number(v))} />}
-            />
-            <Line type="monotone" name={t('network.download')} dataKey="down" stroke="#1E88E5" dot={false} strokeWidth={2} isAnimationActive={false} />
-            <Line type="monotone" name={t('network.upload')} dataKey="up" stroke="#FB8C00" dot={false} strokeWidth={2} isAnimationActive={false} />
-          </LineChart>
-        </ResponsiveContainer>
+        <>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={points} margin={{ left: 0, right: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+              <XAxis dataKey="t" tick={{ fontSize: 9 }} interval={9} />
+              <YAxis
+                domain={[0, yMax]}
+                tick={{ fontSize: compact ? 9 : 10 }}
+                tickFormatter={(v) => formatBytesPerSecond(Number(v))}
+                width={axisWidth}
+              />
+              <Tooltip
+                cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}
+                content={<ChartTooltip valueFormatter={(v) => formatBytesPerSecond(Number(v))} />}
+              />
+              <Line type="monotone" name={t('network.download')} dataKey="down" stroke="#1E88E5" dot={false} strokeWidth={2} isAnimationActive={false} />
+              <Line type="monotone" name={t('network.upload')} dataKey="up" stroke="#FB8C00" dot={false} strokeWidth={2} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+          {/* 纵轴缩放选择栏：＋放大 / −缩小 / 复位，滚轮同样生效 */}
+          <div className="absolute right-2 top-0 z-10 flex items-center gap-0.5 rounded-md border border-border/60 bg-background/90 px-1 py-0.5 text-muted-foreground shadow-sm">
+            <button
+              type="button"
+              onClick={() => zoomBy(1.25)}
+              title={t('network.liveZoomIn')}
+              className="flex h-4 w-4 items-center justify-center rounded hover:bg-accent hover:text-foreground"
+            >
+              <ZoomIn className="h-3 w-3" />
+            </button>
+            <span className="w-9 text-center text-[10px] tabular-nums">
+              {zoom === 1 ? t('network.liveZoomAuto') : `×${zoom.toFixed(2)}`}
+            </span>
+            <button
+              type="button"
+              onClick={() => zoomBy(1 / 1.25)}
+              title={t('network.liveZoomOut')}
+              className="flex h-4 w-4 items-center justify-center rounded hover:bg-accent hover:text-foreground"
+            >
+              <ZoomOut className="h-3 w-3" />
+            </button>
+            {zoom !== 1 && (
+              <button
+                type="button"
+                onClick={() => setZoom(1)}
+                title={t('network.liveZoomReset')}
+                className="flex h-4 w-4 items-center justify-center rounded hover:bg-accent hover:text-foreground"
+              >
+                <RotateCcw className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
