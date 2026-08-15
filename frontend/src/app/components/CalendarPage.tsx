@@ -619,31 +619,44 @@ export default function CalendarPage() {
                 }}
               >
                 {yearMonths.map(({ month: m, cells, total }) => (
-                  <button
+                  <div
                     key={m}
-                    type="button"
-                    onClick={() => goToMonth(m)}
-                    className="flex min-h-0 flex-col rounded-xl border border-border/60 p-1.5 text-left transition-colors hover:border-primary/30 hover:bg-accent/40"
+                    className="flex min-h-0 flex-col rounded-xl border border-border/60 p-1.5"
                   >
-                    <div className="mb-1.5 flex shrink-0 items-baseline justify-between gap-1 px-0.5">
+                    <button
+                      type="button"
+                      onClick={() => goToMonth(m)}
+                      title={t('calendar.monthView')}
+                      className="mb-1.5 flex shrink-0 items-baseline justify-between gap-1 px-0.5 text-left transition-colors hover:text-primary"
+                    >
                       <span className="text-xs font-semibold">{m + 1} 月</span>
                       <span className="truncate text-[10px] tabular-nums text-muted-foreground">
                         {formatDuration(total)}
                       </span>
-                    </div>
+                    </button>
                     <div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6 gap-px">
-                      {cells.map((date, i) =>
-                        date ? (
-                          <span
+                      {cells.map((date, i) => {
+                        if (!date) return <span key={`empty-${i}`} />;
+                        const secs = usage.get(date) ?? 0;
+                        const ratio = max > 0 ? secs / max : 0;
+                        return (
+                          <button
                             key={date}
-                            className={'block min-h-0 min-w-0 rounded-[2px] ' + heatColor(usage.get(date) ?? 0, max)}
-                          />
-                        ) : (
-                          <span key={`empty-${i}`} />
-                        ),
-                      )}
+                            type="button"
+                            onClick={() => openDay(date)}
+                            title={date}
+                            className={
+                              'flex min-h-0 min-w-0 items-center justify-center rounded-[2px] text-[9px] font-medium leading-none transition-colors ' +
+                              heatColor(secs, max) +
+                              (ratio >= 0.5 ? ' text-white' : ' text-foreground/65')
+                            }
+                          >
+                            {Number(date.split('-')[2])}
+                          </button>
+                        );
+                      })}
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             </motion.div>
