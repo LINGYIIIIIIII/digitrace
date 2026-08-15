@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useCallback, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import AppFatalError from './components/AppFatalError';
@@ -7,17 +8,23 @@ import AppLoadingSkeleton from './components/AppLoadingSkeleton';
 import AppShell from './components/AppShell';
 import { apiService } from './services/api';
 import { applyUiZoom, loadUiZoom } from './lib/appearance';
-import AboutPanel from './components/AboutPanel';
-import AppUsagePage from './components/AppUsagePage';
-import CalendarPage from './components/CalendarPage';
-import HardwarePage from './components/HardwarePage';
-import HealthPage from './components/HealthPage';
-import NetworkPage from './components/NetworkPage';
-import SettingsPage from './components/SettingsPage';
 import TakeoverDialog from './components/TakeoverDialog';
 import DashboardPage from './components/dashboard/DashboardPage';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { useAppStore } from './store/app-store';
+
+// 首屏只加载仪表盘；其余页面按需分包（next/dynamic）：减小首屏 JS 体积与
+// 渲染进程内存占用、加快启动——切页时才加载对应页面 chunk（本地加载很快）。
+const pageLoading = () => (
+  <div className="py-24 text-center text-sm text-muted-foreground">…</div>
+);
+const AppUsagePage = dynamic(() => import('./components/AppUsagePage'), { ssr: false, loading: pageLoading });
+const CalendarPage = dynamic(() => import('./components/CalendarPage'), { ssr: false, loading: pageLoading });
+const HardwarePage = dynamic(() => import('./components/HardwarePage'), { ssr: false, loading: pageLoading });
+const HealthPage = dynamic(() => import('./components/HealthPage'), { ssr: false, loading: pageLoading });
+const NetworkPage = dynamic(() => import('./components/NetworkPage'), { ssr: false, loading: pageLoading });
+const SettingsPage = dynamic(() => import('./components/SettingsPage'), { ssr: false, loading: pageLoading });
+const AboutPanel = dynamic(() => import('./components/AboutPanel'), { ssr: false, loading: pageLoading });
 
 export default function Home() {
   useAppBootstrap();
