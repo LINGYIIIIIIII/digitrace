@@ -77,9 +77,6 @@ export const AGGREGATE_CONFLICTS: Partial<Record<AggregateId, AggregateId[]>> = 
   tempAgg: ['hwAgg'],
 };
 
-/** 尺寸循环（编辑手柄按此顺序切换：一格 → 横条 → 竖条 → 标准 → 整行窄 → 整行高）。 */
-export const SIZE_CYCLE: CardSize[] = ['1x1', '2x1', '1x2', '2x2', '3x1', '3x2'];
-
 /** 尺寸 → 列数 / 行数。 */
 export const SIZE_COLS: Record<CardSize, number> = {
   '1x1': 1,
@@ -106,6 +103,46 @@ export function densityOf(size: CardSize): Density {
   if (size === '1x1') return 'sm';
   if (size === '1x2' || size === '2x1' || size === '2x2') return 'md';
   return 'lg';
+}
+
+/**
+ * 位移吸附：水平/垂直各自独立计步。
+ * - 死区 0.25 格（防止轻微抖动误触）；
+ * - 之后每拖满 1 格换一档，可连续跨档（1x1 向右拖 2 格直达 3x1）。
+ */
+export function snapDelta(delta: number, stride: number): number {
+  const dead = stride * 0.25;
+  if (delta > dead) return Math.floor((delta - dead) / stride) + 1;
+  if (delta < -dead) return -(Math.floor((-delta - dead) / stride) + 1);
+  return 0;
+}
+
+/**
+ * 列 × 行 → 合法档位。越界收敛到尺寸表：
+ * - 列夹在 1..3；
+ * - 列 < 3 时最高 2 行（2x3 / 1x3 不在档位表：竖长只提供 1x2，整行宽才允许 3 行）。
+ */
+export function sizeFor(cols: number, rows: number): CardSize {
+  const c = Math.min(3, Math.max(1, Math.round(cols)));
+  const r = Math.min(c === 3 ? 3 : 2, Math.max(1, Math.round(rows)));
+  return `${c}x${r}` as CardSize;
+}
+
+/**
+ * 手柄拖拽吸附：起点档位 + 水平/垂直位移（px）→ 目标档位。
+ * 左右拖改变列数、上下拖改变行数，取代旧的固定顺序循环（SIZE_CYCLE）。
+ */
+export function resizeByDelta(
+  start: CardSize,
+  dx: number,
+  dy: number,
+  strideX: number,
+  strideY: number,
+): CardSize {
+  return sizeFor(
+    SIZE_COLS[start] + snapDelta(dx, strideX),
+    SIZE_ROWS[start] + snapDelta(dy, strideY),
+  );
 }
 
 const DEFAULT_SIZES: Record<CardId, CardSize> = {

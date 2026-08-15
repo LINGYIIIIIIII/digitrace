@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, Edit3, Eye, EyeOff, GripHorizontal, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
@@ -39,9 +40,12 @@ import {
   isAggregate,
   loadLayout,
   resolveTemplate,
+  resizeByDelta,
   saveLayout,
   setCardSize,
-  SIZE_CYCLE,
+  sizeFor,
+  SIZE_COLS,
+  SIZE_ROWS,
   spanClass,
   TEMPLATE_IDS,
   toggleCard,
@@ -86,9 +90,20 @@ export default function DashboardPage() {
   const [dragId, setDragId] = useState<CardId | null>(null);
   const [dropTargetId, setDropTargetId] = useState<CardId | null>(null);
   const [resizeId, setResizeId] = useState<CardId | null>(null);
-  const resizeRef = useRef<{ id: CardId; startX: number; startSize: CardSize } | null>(null);
+  const [resizeSize, setResizeSize] = useState<CardSize | null>(null);
+  const [resizePos, setResizePos] = useState<{ x: number; y: number } | null>(null);
+  const resizeRef = useRef<{
+    id: CardId;
+    startX: number;
+    startY: number;
+    startSize: CardSize;
+    strideX: number;
+    strideY: number;
+  } | null>(null);
   // 网格行高：等于列宽 × 0.92（近正方形单元），由容器宽度实时计算。
   const gridRef = useRef<HTMLDivElement | null>(null);
+  // 编辑缩略图网格（测列距步长用）。
+  const thumbGridRef = useRef<HTMLDivElement | null>(null);
   const [tileH, setTileH] = useState(120);
   useEffect(() => {
     const el = gridRef.current;
@@ -177,39 +192,88 @@ export default function DashboardPage() {
     setEditOpen(false);
   }, [editLayout]);
 
-  // 缩略图右下角手柄：拖动按位移循环切换尺寸档位（1x1 → 1x2 → 2x1 → 2x2 → 3x2）。
+  // 缩略图右下角手柄：2D 方向吸附拖拽——左右拖改变宽度、上下拖改变高度，
+  // 位移超过死区后按格计步、越界吸附到最近合法档位（取代旧固定顺序循环）。
   useEffect(() => {
     if (!resizeId) return;
     const onMove = (e: PointerEvent) => {
       const r = resizeRef.current;
       if (!r) return;
-      const dx = e.clientX - r.startX;
-      const idx = SIZE_CYCLE.indexOf(r.startSize);
-      let target = idx;
-      if (dx > 36) target = Math.min(SIZE_CYCLE.length - 1, idx + Math.floor(dx / 36));
-      else if (dx < -36) target = Math.max(0, idx - Math.floor(-dx / 36));
-      const next = SIZE_CYCLE[target];
+      const next = resizeByDelta(
+        r.startSize,
+        e.clientX - r.startX,
+        e.clientY - r.startY,
+        r.strideX,
+        r.strideY,
+      );
+      setResizeSize(next);
+      setResizePos({ x: e.clientX, y: e.clientY });
       setEditLayout((prev) => (prev ? setCardSize(prev, r.id, next) : prev));
     };
     const onUp = () => {
       resizeRef.current = null;
+      document.body.style.cursor = '';
       setResizeId(null);
+      setResizeSize(null);
+      setResizePos(null);
     };
+    document.body.style.cursor = 'nwse-resize';
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     return () => {
+      document.body.style.cursor = '';
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
   }, [resizeId]);
 
-  const startResize = useCallback((e: React.PointerEvent, id: CardId) => {
-    if (!editLayout) return;
-    e.preventDefault();
-    e.stopPropagation();
-    resizeRef.current = { id, startX: e.clientX, startSize: editLayout.cards[id].size };
-    setResizeId(id);
-  }, [editLayout]);
+  const startResize = useCallback(
+    (e: React.PointerEvent, id: CardId) => {
+      if (!editLayout) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // 指针捕获：拖出窗口/弹窗外松手也能收到 pointerup，避免拖拽状态卡死。
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* 某些输入设备不支持捕获时忽略 */
+      }
+      const grid = thumbGridRef.current;
+      // 3 列网格的列距步长 = 列宽 + 间距（gap-1.5 = 6px）= (clientWidth + 6) / 3
+      const strideX = grid ? (grid.clientWidth + 6) / 3 : 150;
+      resizeRef.current = {
+        id,
+        startX: e.clientX,
+        startY: e.clientY,
+        startSize: editLayout.cards[id].size,
+        strideX,
+        strideY: thumbH + 6,
+      };
+      setResizeSize(editLayout.cards[id].size);
+      setResizePos({ x: e.clientX, y: e.clientY });
+      setResizeId(id);
+    },
+    [editLayout, thumbH],
+  );
+
+  // 键盘调尺寸（手柄聚焦后按方向键）：与拖拽同一套吸附规则，越界自动收敛。
+  const keyResize = useCallback(
+    (e: React.KeyboardEvent, id: CardId) => {
+      if (!editLayout) return;
+      const size = editLayout.cards[id].size;
+      const cols = SIZE_COLS[size];
+      const rows = SIZE_ROWS[size];
+      let next: CardSize | null = null;
+      if (e.key === 'ArrowLeft') next = sizeFor(cols - 1, rows);
+      else if (e.key === 'ArrowRight') next = sizeFor(cols + 1, rows);
+      else if (e.key === 'ArrowUp') next = sizeFor(cols, rows - 1);
+      else if (e.key === 'ArrowDown') next = sizeFor(cols, rows + 1);
+      if (!next || next === size) return;
+      e.preventDefault();
+      setEditLayout((prev) => (prev ? setCardSize(prev, id, next) : prev));
+    },
+    [editLayout],
+  );
 
   const renderCard = useCallback(
     (id: CardId, size: CardSize) => {
@@ -329,6 +393,7 @@ export default function DashboardPage() {
           {/* 可视化缩略图：同款九宫格网格（行高与主网格同比例 1:1），拖动换位置，拖右下角调尺寸，点眼睛隐藏 */}
           <div className="rounded-xl border border-border/60 bg-muted/25 p-2">
             <div
+              ref={thumbGridRef}
               className="grid grid-cols-3 gap-1.5 [grid-auto-flow:row_dense]"
               style={{ gridAutoRows: `${thumbH}px` }}
             >
@@ -389,17 +454,20 @@ export default function DashboardPage() {
                     >
                       <EyeOff className="h-2.5 w-2.5" />
                     </button>
-                    <span
+                    <button
+                      type="button"
                       onPointerDown={(e) => startResize(e, id)}
+                      onKeyDown={(e) => keyResize(e, id)}
                       onDragStart={(e) => e.stopPropagation()}
+                      aria-label={t('dashboard.resizeHandle')}
+                      title={t('dashboard.resizeHandle')}
                       className={clsx(
-                        'absolute bottom-0.5 right-0.5 flex h-4 w-4 cursor-ew-resize items-center justify-center rounded bg-muted text-muted-foreground',
+                        'absolute bottom-0.5 right-0.5 flex h-4 w-4 cursor-nwse-resize items-center justify-center rounded border-0 bg-muted p-0 text-muted-foreground shadow-sm transition-colors hover:text-foreground',
                         resizeId === id && 'bg-primary/20 text-primary',
                       )}
-                      title={t('dashboard.resizeHint')}
                     >
                       <GripHorizontal className="h-3 w-3" />
-                    </span>
+                    </button>
                   </div>
                 );
               })}
@@ -471,6 +539,23 @@ export default function DashboardPage() {
             </Button>
           </DialogFooter>
         </DialogContent>
+
+        {/* 拖拽调尺寸时的悬浮尺寸徽标：portal 到 body，避开弹窗 transform 对 fixed 定位的影响 */}
+        {resizePos && resizeSize
+          ? createPortal(
+              <span
+                className="pointer-events-none fixed z-[60] rounded-md border border-border bg-background/95 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-foreground shadow-md"
+                style={{
+                  left: resizePos.x,
+                  top: resizePos.y,
+                  transform: 'translate(-50%, calc(-100% - 10px))',
+                }}
+              >
+                {resizeSize}
+              </span>,
+              document.body,
+            )
+          : null}
       </Dialog>
     </div>
   );
