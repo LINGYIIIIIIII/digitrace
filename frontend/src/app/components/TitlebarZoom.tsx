@@ -26,6 +26,19 @@ export default function TitlebarZoom() {
 
   const shown = preview ?? saved;
 
+  // 其它入口（设置页等）应用缩放后会派发 ui-zoom-change：同步本地已保存值，
+  // 避免「已生效但顶栏显示旧值」（切换界面后仍不刷新）。
+  useEffect(() => {
+    const onZoomChange = (e: Event) => {
+      const detail = (e as CustomEvent<number>).detail;
+      if (typeof detail === 'number' && Number.isFinite(detail)) {
+        setSaved(detail);
+      }
+    };
+    window.addEventListener('ui-zoom-change', onZoomChange);
+    return () => window.removeEventListener('ui-zoom-change', onZoomChange);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {

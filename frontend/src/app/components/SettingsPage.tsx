@@ -180,6 +180,19 @@ export default function SettingsPage() {
   const [elevatedAutoStart, setElevatedAutoStart] = useState(false);
   const [logPath, setLogPath] = useState('');
   const [uiZoom, setUiZoom] = useState(() => (typeof window !== 'undefined' ? loadUiZoom() : 100));
+
+  // 顶栏「比例」等入口应用缩放后派发 ui-zoom-change：实时同步，避免显示旧值。
+  useEffect(() => {
+    const onZoomChange = (e: Event) => {
+      const detail = (e as CustomEvent<number>).detail;
+      if (typeof detail === 'number' && Number.isFinite(detail)) {
+        setUiZoom(detail);
+      }
+    };
+    window.addEventListener('ui-zoom-change', onZoomChange);
+    return () => window.removeEventListener('ui-zoom-change', onZoomChange);
+  }, []);
+
 const [clearOpen, setClearOpen] = useState(false);
 const [clearing, setClearing] = useState(false);
 const [exporting, setExporting] = useState(false);
