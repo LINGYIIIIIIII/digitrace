@@ -39,7 +39,11 @@ fn maybe_takeover_old_version() {
             .file_stem()
             .map(|s| s.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        name.contains("数迹") || name.contains("timetrace") || name.contains("digitrace")
+        // 只把「另一个主程序」当旧版；独立监控 / Lite 查看器（同家族不同组件）
+        // 必须排除——否则 monitor 常驻时启动主程序会被误判为旧版而弹框失败。
+        let is_main =
+            name.contains("数迹") || name.contains("timetrace") || name.contains("digitrace");
+        is_main && !name.contains("monitor") && !name.contains("viewer") && !name.contains("lite")
     });
     if has_old {
         crate::update::write_pending_takeover(
