@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, CalendarRange, ChevronLeft, ChevronRight, LocateFixed } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -65,44 +65,6 @@ function fmtMin(minute: number): string {
   const hh = Math.floor(minute / 60);
   const mm = minute % 60;
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-}
-
-/**
- * 铺满式网格测量：容器宽度=卡片宽、高度=填充到窗口底部（不滚动），
- * 槽位尺寸 = 可用宽/cols × 可用高/rows（不锁 1:1，日期格可略微拉长）。
- * 用 getBoundingClientRect（渲染后坐标）计算，对全局 UI 缩放（zoom）与
- * 侧边栏收起/展开（内容区宽度变化）均自适应。
- */
-function useContainFit(
-  containerRef: RefObject<HTMLDivElement | null>,
-  active: boolean,
-  cols: number,
-  rows: number,
-  headerPx: number,
-  gap: number,
-): { w: number; h: number } {
-  const [slot, setSlot] = useState({ w: 56, h: 40 });
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!active || !el) return;
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      const availH = Math.max(window.innerHeight - rect.top - 12, 160);
-      const availW = Math.max(rect.width - 4, 80);
-      if (Math.abs(el.clientHeight - availH) > 1) {
-        el.style.height = `${availH}px`;
-      }
-      setSlot({
-        w: Math.max(32, Math.floor((availW - gap * (cols - 1)) / cols)),
-        h: Math.max(28, Math.floor((availH - headerPx * rows - gap * (rows - 1)) / rows)),
-      });
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [active, cols, rows, headerPx, gap, containerRef]);
-  return slot;
 }
 
 function SectionTitle({ children }: { children: ReactNode }) {
@@ -442,7 +404,27 @@ export default function CalendarPage() {
   const [max, setMax] = useState(0);
 
   const gridRef = useRef<HTMLDivElement | null>(null);
-  const yearGridRef = useRef<HTMLDivElement | null>(null);
+  const pageRef = useRef<HTMLDivElement | null>(null);
+
+  // 页面高度 = 视口剩余高度（渲染后坐标实测，对 UI 缩放/侧边栏切换均自适应），
+  // 让月/年视图用 CSS 1fr 铺满整个内容区、无需滚动。
+  useEffect(() => {
+    const el = pageRef.current;
+    if (!el) return;
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      const h = Math.max(window.innerHeight - rect.top - 16, 300);
+      if (Math.abs(el.clientHeight - h) > 2) el.style.height = `${h}px`;
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener('resize', update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -501,14 +483,11 @@ export default function CalendarPage() {
     [year, usage],
   );
 
-  const monthSlot = useContainFit(gridRef, view === 'month', 7, 6, 0, 8);
-
   const yearCols = useMemo(() => {
     if (typeof window === 'undefined') return 4;
     return window.innerWidth >= 1100 ? 4 : window.innerWidth >= 760 ? 3 : 2;
   }, []);
   const yearRows = Math.ceil(12 / yearCols);
-  const yearSlot = useContainFit(yearGridRef, view === 'year', yearCols, yearRows, 26, 12);
 
   const openDay = useCallback((date: string) => {
     setSelectedDate(date);
@@ -549,7 +528,7 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className="flex flex-col space-y-4">
+    <div ref={pageRef} className="flex flex-col space-y-4">
       <Card padding="none" className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* 工具栏：年份跳转 + 月份切换 + 视图切换 */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
@@ -622,90 +601,69 @@ export default function CalendarPage() {
 
         <AnimatePresence mode="wait" initial={false}>
           {view === 'year' ? (
-            /* 年视图：初始简洁样式（月份标题 + 热力格），铺满页面 + 间距 */
+            /* 年视图：初始简洁样式，12 个月按 1fr 铺满页面 + 间距 */
             <motion.div
               key="year"
-              className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3"
+              className="flex min-h-0 flex-1 flex-col p-3"
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
             >
-              <div ref={yearGridRef} className="flex w-full items-center justify-center">
-                <div
-                  className="grid"
-                  style={{
-                    gridTemplateColumns: `repeat(${yearCols}, ${yearSlot.w}px)`,
-                    gridAutoRows: `${yearSlot.h}px`,
-                    gap: 12,
-                  }}
-                >
-                  {yearMonths.map(({ month: m, cells, total }) => {
-                    // 卡片内：内边距 12 + 月份标题行 18 + 热力格 7×6（间距 1）
-                    const heatW = Math.max(4, Math.floor((yearSlot.w - 12 - 6) / 7));
-                    const heatH = Math.max(4, Math.floor((yearSlot.h - 12 - 18 - 5) / 6));
-                    return (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => goToMonth(m)}
-                        className="rounded-xl border border-border/60 p-1.5 text-left transition-colors hover:border-primary/30 hover:bg-accent/40"
-                      >
-                        <div className="mb-1.5 flex items-baseline justify-between gap-1 px-0.5">
-                          <span className="text-xs font-semibold">{m + 1} 月</span>
-                          <span className="truncate text-[10px] tabular-nums text-muted-foreground">
-                            {formatDuration(total)}
-                          </span>
-                        </div>
-                        <div
-                          className="grid gap-px"
-                          style={{
-                            gridTemplateColumns: `repeat(7, ${heatW}px)`,
-                            gridAutoRows: `${heatH}px`,
-                          }}
-                        >
-                          {cells.map((date, i) =>
-                            date ? (
-                              <span
-                                key={date}
-                                className={'block rounded-[2px] ' + heatColor(usage.get(date) ?? 0, max)}
-                              />
-                            ) : (
-                              <span key={`empty-${i}`} />
-                            ),
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+              <div
+                className="grid h-full w-full"
+                style={{
+                  gridTemplateColumns: `repeat(${yearCols}, 1fr)`,
+                  gridAutoRows: '1fr',
+                  gap: 12,
+                }}
+              >
+                {yearMonths.map(({ month: m, cells, total }) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => goToMonth(m)}
+                    className="flex min-h-0 flex-col rounded-xl border border-border/60 p-1.5 text-left transition-colors hover:border-primary/30 hover:bg-accent/40"
+                  >
+                    <div className="mb-1.5 flex shrink-0 items-baseline justify-between gap-1 px-0.5">
+                      <span className="text-xs font-semibold">{m + 1} 月</span>
+                      <span className="truncate text-[10px] tabular-nums text-muted-foreground">
+                        {formatDuration(total)}
+                      </span>
+                    </div>
+                    <div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6 gap-px">
+                      {cells.map((date, i) =>
+                        date ? (
+                          <span
+                            key={date}
+                            className={'block min-h-0 min-w-0 rounded-[2px] ' + heatColor(usage.get(date) ?? 0, max)}
+                          />
+                        ) : (
+                          <span key={`empty-${i}`} />
+                        ),
+                      )}
+                    </div>
+                  </button>
+                ))}
               </div>
             </motion.div>
           ) : (
-            /* 月视图：1:1 日期格，contain-fit 居中，无滚动 */
+            /* 月视图：日期格按 1fr 铺满页面（不锁 1:1），排出间距，无滚动 */
             <motion.div
               key="month"
-              className="flex min-h-0 flex-1 flex-col overflow-hidden"
+              className="flex min-h-0 flex-1 flex-col p-3"
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
             >
-              <div className="flex justify-center gap-2 px-3 pt-2 text-center text-xs font-medium text-muted-foreground">
+              <div className="grid shrink-0 grid-cols-7 gap-2 pb-2 text-center text-xs font-medium text-muted-foreground">
                 {WEEK_LABELS.map((w) => (
-                  <span key={w} style={{ width: monthSlot.w }}>
-                    {w}
-                  </span>
+                  <span key={w}>{w}</span>
                 ))}
               </div>
-              <div ref={gridRef} className="flex min-h-0 flex-1 items-center justify-center p-3">
-                <div
-                  className="grid gap-2"
-                  style={{
-                    gridTemplateColumns: `repeat(7, ${monthSlot.w}px)`,
-                    gridAutoRows: `${monthSlot.h}px`,
-                  }}
-                >
+              <div ref={gridRef} className="min-h-0 flex-1">
+                <div className="grid h-full w-full grid-cols-7 grid-rows-6 gap-2">
                   {days.map((date, i) =>
                     date ? (
                       <button
@@ -713,12 +671,13 @@ export default function CalendarPage() {
                         type="button"
                         onClick={() => openDay(date)}
                         className={
-                          'flex flex-col items-center justify-center rounded-lg border border-border/50 shadow-sm transition-colors hover:border-primary/40 ' +
+                          'flex min-h-0 min-w-0 flex-col items-center justify-center rounded-lg border border-border/50 shadow-sm transition-colors hover:border-primary/40 ' +
                           heatColor(usage.get(date) ?? 0, max)
                         }
-                        style={{ fontSize: monthSlot.w >= 26 ? 13 : 10 }}
                       >
-                        <span className="font-medium leading-none">{Number(date.split('-')[2])}</span>
+                        <span className="text-[13px] font-medium leading-none">
+                          {Number(date.split('-')[2])}
+                        </span>
                       </button>
                     ) : (
                       <span key={`empty-${i}`} />
