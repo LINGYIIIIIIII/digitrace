@@ -87,7 +87,7 @@ export default function TitlebarZoom() {
         createPortal(
           <div
             ref={panelRef}
-            className="fixed right-2 top-12 z-[10000] w-64 rounded-xl border border-border/80 bg-[#161b23]/95 p-3 shadow-2xl ring-1 ring-black/30"
+            className="fixed right-2 top-12 z-[10000] w-64 rounded-xl border border-border/80 bg-card/95 p-3 text-card-foreground shadow-2xl ring-1 ring-black/30 backdrop-blur-sm"
           >
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-semibold">{t('settings.zoom.title')}</span>

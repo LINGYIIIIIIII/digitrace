@@ -235,19 +235,33 @@
 }
 
 /* 焦点轮廓：只有用户真实使用键盘导航（Tab/方向键）时才显示。
-   鼠标点击、窗口重新聚焦（截图/切换窗口触发 Chromium 的 :focus-visible）
-   一律不显示，避免顶栏按钮和内容按钮出现杂散红框。 */
+   鼠标点击、窗口重新聚焦（截图/切换窗口触发 Chromium 的 :focus-visible）、
+   弹窗关闭后焦点归还触发按钮等程序化聚焦一律不显示，
+   避免顶栏按钮和内容按钮出现杂散红框/焦点框（outline 与 ring 都要压掉）。 */
 :focus:not(:focus-visible) {
   outline: none;
+  box-shadow: none;
 }
 
 body:not(.kbd-focus) :focus-visible {
   outline: none;
+  box-shadow: none;
 }
 
 body.kbd-focus :focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
+}
+
+/* 数字输入框：隐藏浏览器原生上下箭头（仍可正常输入，回车/失焦提交由组件处理）。 */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 @media (prefers-reduced-motion: reduce) {
