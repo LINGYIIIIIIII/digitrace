@@ -71,12 +71,28 @@ fn maybe_takeover_old_version() {
         }
         std::process::exit(0);
     }
+    // 同路径实例已在运行（常见于提权实例）：单实例回调会被 Windows 完整性级别
+    // 隔离拦截，双击看起来"没反应"。写入「显示窗口」请求，由运行中实例的轮询器
+    // 消费并唤出主窗口（走文件系统，跨提权边界可用）。
+    // `--tray`（开机自启）不写：自启保持静默，只交给单实例插件处理。
+    if !std::env::args().any(|a| a == "--tray") {
+        let has_same_path = sys.processes().iter().any(|(pid, p)| {
+            pid.as_u32() != std::process::id() && p.exe().map(|e| e == current).unwrap_or(false)
+        });
+        if has_same_path {
+            crate::update::write_show_request(&current.to_string_lossy());
+        }
+    }
 }
 
 /// 后台轮询「待切换」标记：跨权限场景（如管理员旧版）下单实例通道不通，
 /// 旧版通过这里接管请求——弹出自己的窗口并询问是否切换到新版本。
+/// 同时消费「显示窗口」请求：双击唤出同路径/提权实例（单实例回调被隔离拦截时兜底）。
 fn spawn_takeover_poller(app: tauri::AppHandle) {
     std::thread::spawn(move || loop {
+        if crate::update::take_show_request().is_some() {
+            show_main_window(&app);
+        }
         if let Some(pending) = crate::update::consume_pending_takeover() {
             let current = std::env::current_exe()
                 .map(|p| p.to_string_lossy().to_string())
@@ -199,6 +215,10 @@ fn main() {
             update::start_background_check(app.handle().clone());
             // 清理可能残留的待切换标记（上一次交接未完成时）。
             update::clear_stale_pending_takeover();
+            // 自启（--tray）必须静默：清理残留的「显示窗口」请求，避免登录时误弹窗口。
+            if from_autostart {
+                update::clear_stale_show_request();
+            }
             // 跨权限接管兜底：轮询新版写入的「待切换」标记并弹窗询问。
             spawn_takeover_poller(app.handle().clone());
             if !config.update_silent {

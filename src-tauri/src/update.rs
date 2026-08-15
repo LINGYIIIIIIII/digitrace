@@ -146,9 +146,66 @@ pub fn clear_stale_pending_takeover() {
     let _ = std::fs::remove_file(pending_takeover_path());
 }
 
+/// 「显示窗口」请求标记：双击启动时检测到同路径实例已在运行（常见于提权实例——
+/// 单实例回调会被 Windows 完整性级别隔离拦截，双击看起来"没反应"），写入该请求，
+/// 由运行中实例的轮询器消费并唤出主窗口。走文件系统，跨提权边界可用。
+const SHOW_REQUEST_FILE: &str = "show_request.json";
+/// 显示请求的新鲜度窗口（秒）：只处理该时限内的请求，防止陈旧标记误触发。
+const SHOW_REQUEST_TTL_SECS: u64 = 15;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShowRequest {
+    pub exe_path: String,
+    /// 写入时间戳（Unix 秒），用于陈旧性判断。
+    pub written_at: u64,
+}
+
+fn show_request_path() -> PathBuf {
+    data_dir().join(SHOW_REQUEST_FILE)
+}
+
+/// 写入「显示窗口」请求（检测到同路径实例在跑、且非自启 `--tray` 时调用）。
+pub fn write_show_request(exe_path: &str) {
+    let req = ShowRequest {
+        exe_path: exe_path.to_string(),
+        written_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    };
+    if let Ok(json) = serde_json::to_string(&req) {
+        let _ = std::fs::write(show_request_path(), json);
+    }
+}
+
+/// 消费「显示窗口」请求：只处理新鲜窗口（≤15s）内的请求，陈旧标记直接清除。
+pub fn take_show_request() -> Option<ShowRequest> {
+    let path = show_request_path();
+    let modified = std::fs::metadata(&path).ok()?.modified().ok()?;
+    let age = std::time::SystemTime::now()
+        .duration_since(modified)
+        .unwrap_or_default()
+        .as_secs();
+    if age > SHOW_REQUEST_TTL_SECS {
+        let _ = std::fs::remove_file(&path);
+        return None;
+    }
+    let content = std::fs::read_to_string(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+    serde_json::from_str(&content).ok()
+}
+
+/// 启动时清理残留的显示请求（自启 `--tray` 场景调用，保证开机静默）。
+pub fn clear_stale_show_request() {
+    let _ = std::fs::remove_file(show_request_path());
+}
+
 /// 前端点「立即切换」：启动新版 exe 后干净退出当前进程。
 #[tauri::command]
 pub fn switch_to_pending(app: AppHandle, path: String, elevated: bool) -> UpdateActionDto {
+    // 新版权限继承旧版：旧版以管理员运行时，新版也应以此拉起（UAC 确认一次），
+    // 避免切换后权限丢失（ETW 网络归因等能力降级）——与「管理员自启」意图一致。
+    let elevated = timetrace_core::is_elevated() || elevated;
     // 用隐藏 PowerShell 延迟 1 秒再启动新版：等当前进程完全退出、
     // 单实例锁释放后再拉起，避免竞态导致新版被拦下或窗口不显示。
     let exe_str = path.replace('\'', "''");
