@@ -19,7 +19,8 @@ import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/app-store';
 import { apiService } from '../services/api';
-import type { HistoryPointDto, NetworkSnapshotDto } from '../types';
+import { useNetworkLiveShared } from '../lib/network-live-store';
+import type { HistoryPointDto } from '../types';
 import AttributedUsageCard from './AttributedUsageCard';
 import NetAppsCard from './NetAppsCard';
 import { Card } from './ui/index';
@@ -44,50 +45,14 @@ const RANGE_MODES: RangeMode[] = ['24h', 'today', 'session', '7d', '30d'];
 export default function NetworkPage() {
   const { t } = useTranslation();
   const { config } = useAppStore(useShallow((s) => ({ config: s.config })));
-  const refreshSeconds = config?.live_refresh_interval_seconds ?? 1;
-  const [snapshot, setSnapshot] = useState<NetworkSnapshotDto | null>(null);
+  // 实时快照 + 秒级曲线窗口：与仪表盘共用同一单例轮询（lib/network-live-store.ts），
+  // 避免本页再开一路每秒轮询（重复请求与 GC 压力）。
+  const { snapshot, points: livePoints } = useNetworkLiveShared();
   const [rangeMode, setRangeMode] = useState<RangeMode>('7d');
   const [historyDown, setHistoryDown] = useState<HistoryPointDto[]>([]);
   const [historyUp, setHistoryUp] = useState<HistoryPointDto[]>([]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [historyWindow, setHistoryWindow] = useState<WindowKey>(10);
-  const [livePoints, setLivePoints] = useState<{ t: string; down: number; up: number }[]>([]);
-
-  // 实时快照 + 秒级曲线窗口（后端环形缓冲，最近 network_live_window_seconds 秒，
-  // 切页/刷新不丢历史；间隔可在设置中选 1/2/5/10 秒）。
-  useEffect(() => {
-    let disposed = false;
-    const windowSeconds = config?.network_live_window_seconds ?? 300;
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const tick = async () => {
-      try {
-        const [snap, samples] = await Promise.all([
-          apiService.getNetworkSnapshot(),
-          apiService.getNetworkLiveWindow(windowSeconds),
-        ]);
-        if (disposed) return;
-        setSnapshot(snap);
-        setLivePoints(
-          samples.map((s) => {
-            const d = new Date(s.ts);
-            return {
-              t: `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`,
-              down: s.down,
-              up: s.up,
-            };
-          }),
-        );
-      } catch {
-        /* 静默 */
-      }
-    };
-    void tick();
-    const timer = window.setInterval(() => void tick(), refreshSeconds * 1000);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, [refreshSeconds, config?.network_live_window_seconds]);
 
   // 历史（下载 + 上传），范围切换时加载。
   useEffect(() => {

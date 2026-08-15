@@ -37,6 +37,7 @@ import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { apiService } from '../../services/api';
 import { useAppStore } from '../../store/app-store';
+import { useNetworkLiveShared } from '../../lib/network-live-store';
 import type {
   AppUsageDto,
   DashboardDataDto,
@@ -152,48 +153,9 @@ function CardShell({
 /* ────────────────────────── 数据轮询 Hooks ────────────────────────── */
 
 function useNetworkLive(): { snapshot: NetworkSnapshotDto | null; points: { t: string; down: number; up: number }[] } {
-  const { config } = useAppStore(useShallow((s) => ({ config: s.config })));
-  const refreshSeconds = config?.live_refresh_interval_seconds ?? 1;
-  const windowSeconds = config?.network_live_window_seconds ?? 300;
-  const [snapshot, setSnapshot] = useState<NetworkSnapshotDto | null>(null);
-  const [points, setPoints] = useState<{ t: string; down: number; up: number }[]>([]);
-
-  // 实时曲线数据源 = 后端秒级环形缓冲（最近 network_live_window_seconds 秒）：
-  // 任何时刻进入页面都能看到完整的最近窗口，切页不丢；采样由后端监控线程统一完成。
-  useEffect(() => {
-    let disposed = false;
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const tick = async () => {
-      try {
-        const [snap, samples] = await Promise.all([
-          apiService.getNetworkSnapshot(),
-          apiService.getNetworkLiveWindow(windowSeconds),
-        ]);
-        if (disposed) return;
-        setSnapshot(snap);
-        setPoints(
-          samples.map((s) => {
-            const d = new Date(s.ts);
-            return {
-              t: `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`,
-              down: s.down,
-              up: s.up,
-            };
-          }),
-        );
-      } catch {
-        /* 静默降级 */
-      }
-    };
-    void tick();
-    const timer = window.setInterval(() => void tick(), refreshSeconds * 1000);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, [refreshSeconds, windowSeconds]);
-
-  return { snapshot, points };
+  // 共享单例轮询：仪表盘各卡共用同一轮询器与状态（lib/network-live-store.ts），
+  // 避免每张卡各自每秒拉快照 + 300 点窗口造成重复请求与 GC 压力。
+  return useNetworkLiveShared();
 }
 
 function useHardwareData(): { snapshot: HardwareSnapshotDto | null; temp: TemperatureSnapshotDto | null } {

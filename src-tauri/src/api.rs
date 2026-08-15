@@ -431,13 +431,40 @@ impl TimeTraceApi {
     }
 
     /// Extract an exe icon as raw RGBA pixels.
+    /// 有界缓存（64 个，FIFO 淘汰）：应用列表反复请求图标时避免重复提取
+    /// （Win32 提取 + RGBA 分配开销大），同时防止缓存无限增长。
     pub fn get_app_icon(&self, exe_path: String) -> Option<IconDto> {
+        use std::sync::Mutex;
+        use std::sync::OnceLock;
+
+        static CACHE: OnceLock<Mutex<std::collections::VecDeque<(String, IconDto)>>> =
+            OnceLock::new();
+        const CAP: usize = 64;
+
+        let cache = CACHE.get_or_init(|| Mutex::new(std::collections::VecDeque::new()));
+        if let Ok(mut guard) = cache.lock() {
+            if let Some(pos) = guard.iter().position(|(p, _)| *p == exe_path) {
+                let hit = guard.remove(pos).unwrap();
+                return Some(hit.1);
+            }
+        }
         let cleaned = clean_exe_path(&exe_path).unwrap_or_else(|| exe_path.clone());
-        crate::icons::extract_icon_rgba(&cleaned).map(|(w, h, rgba)| IconDto {
+        let icon = crate::icons::extract_icon_rgba(&cleaned).map(|(w, h, rgba)| IconDto {
             width: w as i64,
             height: h as i64,
             rgba,
-        })
+        });
+        if icon.is_some() {
+            if let Ok(mut guard) = cache.lock() {
+                if guard.len() >= CAP {
+                    guard.pop_front();
+                }
+                if let Some(ic) = icon.clone() {
+                    guard.push_back((exe_path, ic));
+                }
+            }
+        }
+        icon
     }
 
     /// Read the current user configuration.
