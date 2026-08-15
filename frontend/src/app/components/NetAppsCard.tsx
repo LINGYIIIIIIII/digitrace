@@ -64,24 +64,24 @@ export default function NetAppsCard({
   const etwMode = snap?.etw_mode ?? false;
 
   return (
-    <Card padding="none" className="h-full overflow-hidden">
+    <Card padding="none" className="flex h-full flex-col overflow-hidden">
       <div className="border-b border-border/60 px-4 py-3 text-sm font-semibold">{title}</div>
-      <div className="p-3">
+      <div className="flex min-h-0 flex-1 flex-col p-3">
         {!bytesMode && !compact && (
-          <p className="mb-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-2.5 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
+          <p className="mb-2 shrink-0 rounded-lg border border-amber-500/20 bg-amber-500/5 px-2.5 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
             {t('network.bytesHint')}
           </p>
         )}
         {visible.length === 0 ? (
-          <p className="py-6 text-center text-xs text-muted-foreground">
+          <p className="flex flex-1 items-center justify-center py-6 text-center text-xs text-muted-foreground">
             {t('network.appTrafficEmpty')}
           </p>
         ) : (
-          <div className={`space-y-0.5 ${apps.length > limit ? 'max-h-80 overflow-y-auto pr-1' : ''}`}>
+          <div className="flex min-h-0 flex-col overflow-y-auto pr-1">
             {visible.map((app) => (
               <div
                 key={app.exe_path || app.app_name}
-                className={`flex items-center rounded-lg transition-colors hover:bg-accent/40 ${compact ? 'gap-2 px-1.5 py-1' : 'gap-2.5 px-2 py-1.5'}`}
+                className={`flex min-h-0 items-center rounded-lg transition-colors hover:bg-accent/40 ${compact ? 'flex-1 gap-2 px-1.5 py-0.5' : 'flex-1 gap-2.5 px-2 py-1'}`}
               >
                 <AppIcon exePath={app.exe_path} size={compact ? 18 : 24} />
                 <div className="min-w-0 flex-1">

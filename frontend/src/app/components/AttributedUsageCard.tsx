@@ -71,7 +71,7 @@ export default function AttributedUsageCard({
   const total = result?.apps.reduce((sum, a) => sum + a.total_bytes, 0) ?? 0;
 
   return (
-    <Card padding="none" className="h-full overflow-hidden">
+    <Card padding="none" className="flex h-full flex-col overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
         <span className="text-sm font-semibold">{title}</span>
         <div className="flex items-center gap-2">
@@ -105,25 +105,25 @@ export default function AttributedUsageCard({
           </button>
         </div>
       </div>
-      <div className="p-3">
+      <div className="flex min-h-0 flex-1 flex-col p-3">
         {loading && result === null && (
-          <p className="py-6 text-center text-xs text-muted-foreground">{t('network.attrLoading')}</p>
+          <p className="flex flex-1 items-center justify-center py-6 text-center text-xs text-muted-foreground">{t('network.attrLoading')}</p>
         )}
         {result && !result.available && (
-          <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
+          <p className="shrink-0 rounded-lg border border-amber-500/20 bg-amber-500/5 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
             {result.message || t('network.attrUnavailable')}
           </p>
         )}
         {result && result.available && result.apps.length === 0 && (
-          <p className="py-6 text-center text-xs text-muted-foreground">{t('network.attrEmpty')}</p>
+          <p className="flex flex-1 items-center justify-center py-6 text-center text-xs text-muted-foreground">{t('network.attrEmpty')}</p>
         )}
         {result && result.available && result.apps.length > 0 && (
           <>
-            <div className={compact ? 'max-h-40 space-y-0.5 overflow-y-auto pr-1' : 'max-h-96 space-y-0.5 overflow-y-auto pr-1'}>
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
               {visible.map((app, index) => (
                 <div
                   key={app.app_id || app.app_name || `row-${index}`}
-                  className={`flex items-center rounded-lg transition-colors hover:bg-accent/40 ${compact ? 'gap-2 px-1.5 py-1' : 'gap-2.5 px-2 py-1.5'}`}
+                  className={`flex min-h-0 flex-1 items-center rounded-lg transition-colors hover:bg-accent/40 ${compact ? 'gap-2 px-1.5 py-0.5' : 'gap-2.5 px-2 py-1'}`}
                 >
                   <AppIcon exePath={app.exe_path} size={compact ? 18 : 24} />
                   <div className="min-w-0 flex-1">

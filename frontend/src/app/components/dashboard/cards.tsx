@@ -136,7 +136,7 @@ function CardShell({
   return (
     <Card padding="none" className="flex h-full flex-col overflow-hidden">
       <div className="border-b border-border/60 px-4 py-3 text-[var(--ui-title-size)] font-semibold">{title}</div>
-      <div className={clsx('flex min-h-0 flex-1 flex-col overflow-y-auto p-[var(--ui-card-pad)]', bodyClassName)}>{children}</div>
+      <div className={clsx('flex min-h-0 flex-1 flex-col p-[var(--ui-card-pad)]', bodyClassName)}>{children}</div>
     </Card>
   );
 }
@@ -423,15 +423,16 @@ function AppUsageContent({
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-2 min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1">
+      <div className="mt-2 flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
         {topApps.map((app) => (
           <button
             key={app.exe_path || app.app_name}
             type="button"
             onClick={() => void handleSelectApp(app)}
             className={clsx(
-              'flex w-full items-center gap-2 rounded-md border px-2 py-1 text-left transition-colors',
-              'text-sm',
+              'flex min-h-0 w-full items-center gap-2 rounded-md border px-2 text-left transition-colors',
+              'flex-1 text-sm',
+              isNarrow(size) ? 'py-0.5' : 'py-1',
               selectedApp?.app_name === app.app_name
                 ? 'border-primary/30 bg-primary/10'
                 : 'border-transparent hover:border-border hover:bg-accent/50',
@@ -801,9 +802,9 @@ function DiskTempContent({ temp }: { temp: TemperatureSnapshotDto | null }) {
     return <p className="py-4 text-center text-sm text-muted-foreground">{t('hardware.loading')}</p>;
   }
   return (
-    <div className="space-y-1">
+    <div className="flex min-h-0 flex-col overflow-y-auto">
       {disks.map((d) => (
-        <div key={d.drive} className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm">
+        <div key={d.drive} className="flex min-h-0 flex-1 items-center justify-between gap-3 rounded-lg px-2 text-sm">
           <span className="min-w-0 truncate">{d.model || d.drive}</span>
           <span className="shrink-0 tabular-nums text-muted-foreground">
             {d.temp_celsius != null ? `${d.temp_celsius.toFixed(1)}°C` : '--'}

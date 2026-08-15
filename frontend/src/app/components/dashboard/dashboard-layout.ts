@@ -77,8 +77,8 @@ export const AGGREGATE_CONFLICTS: Partial<Record<AggregateId, AggregateId[]>> = 
   tempAgg: ['hwAgg'],
 };
 
-/** 尺寸循环（编辑手柄按此顺序切换：小 → 中 → 大）。 */
-export const SIZE_CYCLE: CardSize[] = ['1x1', '1x2', '2x1', '2x2', '3x2'];
+/** 尺寸循环（编辑手柄按此顺序切换：一格 → 横条 → 竖条 → 标准 → 整行窄 → 整行高）。 */
+export const SIZE_CYCLE: CardSize[] = ['1x1', '2x1', '1x2', '2x2', '3x1', '3x2'];
 
 /** 尺寸 → 列数 / 行数。 */
 export const SIZE_COLS: Record<CardSize, number> = {
