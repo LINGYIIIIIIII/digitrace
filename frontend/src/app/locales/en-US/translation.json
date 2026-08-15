@@ -170,7 +170,8 @@
     "mem": "Memory",
     "cpuTemp": "CPU temp",
     "gpuTemp": "GPU temp",
-    "empty": "No data"
+    "empty": "No data",
+    "noMetrics": "No monitoring record for this day (data only covers periods when monitoring ran)"
   },
   "network": {
     "download": "Download",

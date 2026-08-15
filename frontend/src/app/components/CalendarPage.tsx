@@ -68,9 +68,10 @@ function fmtMin(minute: number): string {
 }
 
 /**
- * contain-fit 网格测量：容器宽度=卡片宽、高度=填充到窗口底部（不滚动），
- * 按 1:1 格计算 cell = min(可用宽/cols, 可用高/rows)，网格居中、长边留白。
- * 用 getBoundingClientRect（渲染后坐标）计算，对全局 UI 缩放（zoom）也正确。
+ * 铺满式网格测量：容器宽度=卡片宽、高度=填充到窗口底部（不滚动），
+ * 槽位尺寸 = 可用宽/cols × 可用高/rows（不锁 1:1，日期格可略微拉长）。
+ * 用 getBoundingClientRect（渲染后坐标）计算，对全局 UI 缩放（zoom）与
+ * 侧边栏收起/展开（内容区宽度变化）均自适应。
  */
 function useContainFit(
   containerRef: RefObject<HTMLDivElement | null>,
@@ -78,8 +79,9 @@ function useContainFit(
   cols: number,
   rows: number,
   headerPx: number,
-): number {
-  const [cell, setCell] = useState(24);
+  gap: number,
+): { w: number; h: number } {
+  const [slot, setSlot] = useState({ w: 56, h: 40 });
   useEffect(() => {
     const el = containerRef.current;
     if (!active || !el) return;
@@ -90,19 +92,17 @@ function useContainFit(
       if (Math.abs(el.clientHeight - availH) > 1) {
         el.style.height = `${availH}px`;
       }
-      const gap = 4;
-      const c = Math.min(
-        (availW - gap * (cols - 1)) / cols,
-        (availH - headerPx * rows - gap * (rows - 1)) / rows,
-      );
-      setCell(Math.max(8, Math.floor(c)));
+      setSlot({
+        w: Math.max(32, Math.floor((availW - gap * (cols - 1)) / cols)),
+        h: Math.max(28, Math.floor((availH - headerPx * rows - gap * (rows - 1)) / rows)),
+      });
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [active, cols, rows, headerPx, containerRef]);
-  return cell;
+  }, [active, cols, rows, headerPx, gap, containerRef]);
+  return slot;
 }
 
 function SectionTitle({ children }: { children: ReactNode }) {
@@ -374,7 +374,7 @@ function DayPanel({ date, onBack }: { date: string; onBack: () => void }) {
             )}
           </>
         ) : (
-          <p className="py-8 text-center text-sm text-muted-foreground">{t('calendar.empty')}</p>
+          <p className="py-8 text-center text-sm text-muted-foreground">{t('calendar.noMetrics')}</p>
         )}
       </Card>
 
@@ -402,7 +402,7 @@ function DayPanel({ date, onBack }: { date: string; onBack: () => void }) {
             </ResponsiveContainer>
           </div>
         ) : (
-          <p className="py-8 text-center text-sm text-muted-foreground">{t('calendar.empty')}</p>
+          <p className="py-8 text-center text-sm text-muted-foreground">{t('calendar.noMetrics')}</p>
         )}
       </Card>
 
@@ -501,14 +501,14 @@ export default function CalendarPage() {
     [year, usage],
   );
 
-  const monthCell = useContainFit(gridRef, view === 'month', 7, 6, 0);
+  const monthSlot = useContainFit(gridRef, view === 'month', 7, 6, 0, 8);
 
   const yearCols = useMemo(() => {
     if (typeof window === 'undefined') return 4;
-    return window.innerWidth >= 1000 ? 4 : window.innerWidth >= 700 ? 3 : 2;
+    return window.innerWidth >= 1100 ? 4 : window.innerWidth >= 760 ? 3 : 2;
   }, []);
   const yearRows = Math.ceil(12 / yearCols);
-  const yearCell = useContainFit(yearGridRef, view === 'year', yearCols * 7, yearRows * 6, 22);
+  const yearSlot = useContainFit(yearGridRef, view === 'year', yearCols, yearRows, 26, 12);
 
   const openDay = useCallback((date: string) => {
     setSelectedDate(date);
@@ -549,7 +549,7 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col space-y-4">
+    <div className="flex flex-col space-y-4">
       <Card padding="none" className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* 工具栏：年份跳转 + 月份切换 + 视图切换 */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
@@ -622,7 +622,7 @@ export default function CalendarPage() {
 
         <AnimatePresence mode="wait" initial={false}>
           {view === 'year' ? (
-            /* 年视图：迷你月历，contain-fit 居中，无滚动 */
+            /* 年视图：按月份排列的装饰卡片，铺满页面、排出间距 */
             <motion.div
               key="year"
               className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3"
@@ -633,45 +633,54 @@ export default function CalendarPage() {
             >
               <div ref={yearGridRef} className="flex w-full items-center justify-center">
                 <div
-                  className="grid gap-1"
+                  className="grid"
                   style={{
-                    gridTemplateColumns: `repeat(${yearCols}, minmax(0, 1fr))`,
-                    width: '100%',
+                    gridTemplateColumns: `repeat(${yearCols}, ${yearSlot.w}px)`,
+                    gridAutoRows: `${yearSlot.h}px`,
+                    gap: 12,
                   }}
                 >
-                  {yearMonths.map(({ month: m, cells, total }) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => goToMonth(m)}
-                      className="rounded-lg border border-border/60 p-1.5 text-left transition-colors hover:border-primary/30 hover:bg-accent/40"
-                    >
-                      <div className="mb-1 flex items-baseline justify-between gap-1">
-                        <span className="text-[11px] font-semibold">{m + 1} 月</span>
-                        <span className="truncate text-[9px] tabular-nums text-muted-foreground">
-                          {formatDuration(total)}
-                        </span>
-                      </div>
-                      <div
-                        className="grid gap-px"
-                        style={{
-                          gridTemplateColumns: `repeat(7, ${yearCell}px)`,
-                          gridAutoRows: `${yearCell}px`,
-                        }}
+                  {yearMonths.map(({ month: m, cells, total }) => {
+                    // 卡片内：内边距 8 + 月份标题 22 + 热力格 7×6（间距 2）
+                    const heatW = Math.max(4, Math.floor((yearSlot.w - 16 - 12) / 7));
+                    const heatH = Math.max(4, Math.floor((yearSlot.h - 16 - 22 - 10) / 6));
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => goToMonth(m)}
+                        className="group overflow-hidden rounded-xl border border-border/60 bg-card text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
                       >
-                        {cells.map((date, i) =>
-                          date ? (
-                            <span
-                              key={date}
-                              className={'block rounded-[2px] ' + heatColor(usage.get(date) ?? 0, max)}
-                            />
-                          ) : (
-                            <span key={`empty-${i}`} />
-                          ),
-                        )}
-                      </div>
-                    </button>
-                  ))}
+                        <div className="flex items-baseline justify-between gap-1 border-b border-border/40 bg-muted/30 px-2.5 py-1.5">
+                          <span className="text-xs font-semibold text-foreground">{m + 1} 月</span>
+                          <span className="truncate text-[10px] tabular-nums text-muted-foreground">
+                            {formatDuration(total)}
+                          </span>
+                        </div>
+                        <div
+                          className="grid gap-0.5 p-2"
+                          style={{
+                            gridTemplateColumns: `repeat(7, ${heatW}px)`,
+                            gridAutoRows: `${heatH}px`,
+                          }}
+                        >
+                          {cells.map((date, i) =>
+                            date ? (
+                              <span
+                                key={date}
+                                className={
+                                  'rounded-[3px] transition-colors group-hover:rounded ' +
+                                  heatColor(usage.get(date) ?? 0, max)
+                                }
+                              />
+                            ) : (
+                              <span key={`empty-${i}`} />
+                            ),
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </motion.div>
@@ -685,19 +694,19 @@ export default function CalendarPage() {
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
             >
-              <div className="flex justify-center gap-1 px-3 pt-2 text-center text-xs font-medium text-muted-foreground">
+              <div className="flex justify-center gap-2 px-3 pt-2 text-center text-xs font-medium text-muted-foreground">
                 {WEEK_LABELS.map((w) => (
-                  <span key={w} style={{ width: monthCell }}>
+                  <span key={w} style={{ width: monthSlot.w }}>
                     {w}
                   </span>
                 ))}
               </div>
-              <div ref={gridRef} className="flex min-h-0 flex-1 items-center justify-center p-2">
+              <div ref={gridRef} className="flex min-h-0 flex-1 items-center justify-center p-3">
                 <div
-                  className="grid gap-1"
+                  className="grid gap-2"
                   style={{
-                    gridTemplateColumns: `repeat(7, ${monthCell}px)`,
-                    gridAutoRows: `${monthCell}px`,
+                    gridTemplateColumns: `repeat(7, ${monthSlot.w}px)`,
+                    gridAutoRows: `${monthSlot.h}px`,
                   }}
                 >
                   {days.map((date, i) =>
@@ -707,12 +716,12 @@ export default function CalendarPage() {
                         type="button"
                         onClick={() => openDay(date)}
                         className={
-                          'flex items-center justify-center rounded-lg font-medium transition-colors ' +
+                          'flex flex-col items-center justify-center rounded-lg border border-border/50 shadow-sm transition-colors hover:border-primary/40 ' +
                           heatColor(usage.get(date) ?? 0, max)
                         }
-                        style={{ width: monthCell, height: monthCell, fontSize: monthCell >= 22 ? 12 : 10 }}
+                        style={{ fontSize: monthSlot.w >= 26 ? 13 : 10 }}
                       >
-                        {monthCell >= 16 ? Number(date.split('-')[2]) : ''}
+                        <span className="font-medium leading-none">{Number(date.split('-')[2])}</span>
                       </button>
                     ) : (
                       <span key={`empty-${i}`} />

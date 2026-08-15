@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 timetrace-core = { path = "../core" }
 metrics = { path = "../metrics" }
+dirs = "6"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_Threading",

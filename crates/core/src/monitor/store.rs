@@ -58,7 +58,9 @@ impl MetricStore {
             DROP TABLE IF EXISTS deepseek_usage;
             DELETE FROM metric_samples WHERE metric = 'deepseek_active';
             PRAGMA journal_mode=WAL;
-            PRAGMA cache_size=-1024;",
+            PRAGMA cache_size=-1024;
+            -- 多进程（完整版 + 独立监控）并发写同一 monitor.db 时避免锁冲突。
+            PRAGMA busy_timeout=5000;",
         )?;
 
         let retention_days = if retention_days == 0 {

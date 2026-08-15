@@ -86,6 +86,24 @@ fn main() {
     let mut temp = TemperatureMonitor::new();
     let mut net = WindowsCollector::new();
 
+    // ── 分钟级历史落库（与完整版共用 %APPDATA%\TimeTrace\monitor.db；
+    //    独立监控常驻时，硬件/温度/网络历史也能 24/7 积累，供日历日面板查询） ──
+    let db_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("TimeTrace");
+    let mut store =
+        timetrace_core::monitor::store::MetricStore::open(db_dir.join("monitor.db"), 90)
+            .unwrap_or_else(|_| {
+                timetrace_core::monitor::store::MetricStore::open(
+                    std::env::temp_dir().join("digitrace_monitor.db"),
+                    90,
+                )
+                .expect("fallback monitor db")
+            });
+    let mut last_flush = std::time::Instant::now();
+    let mut timezone = timetrace_core::AppConfig::load().timezone;
+    let mut last_tz_check = std::time::Instant::now();
+
     let Some(mut publisher) = metrics::MetricsPublisher::open() else {
         return; // 共享内存不可用（目录不可写等），静默退出。
     };
@@ -101,6 +119,7 @@ fn main() {
         let gpu = ts.gpus.first();
         let gpu_usage = gpu.and_then(|g| g.usage_percent).unwrap_or(-1.0);
         let gpu_temp = gpu.and_then(|g| g.temp_celsius).unwrap_or(-1.0);
+        let mem_percent = hs.memory_used_bytes as f64 / mem_total * 100.0;
 
         let mut snap = metrics::MetricsSnapshot {
             cpu_total_percent: hs.cpu_percent,
@@ -108,7 +127,7 @@ fn main() {
             gpu_usage_percent: gpu_usage,
             gpu_temp_c: gpu_temp,
             mem_used_mb: hs.memory_used_bytes as f64 / 1_048_576.0,
-            mem_percent: hs.memory_used_bytes as f64 / mem_total * 100.0,
+            mem_percent,
             net_down_bps: ns.download_bytes_per_sec as f64,
             net_up_bps: ns.upload_bytes_per_sec as f64,
             fps: -1.0, // 帧率预留，未实现
@@ -117,12 +136,43 @@ fn main() {
         snap.set_active_app(&foreground_app());
         publisher.publish(snap);
 
+        // 分钟级历史：按配置时区记录；时区每 60s 重读；每 60s 落盘一次。
+        if last_tz_check.elapsed() >= std::time::Duration::from_secs(60) {
+            timezone = timetrace_core::AppConfig::load().timezone;
+            last_tz_check = std::time::Instant::now();
+        }
+        let now_fixed = timetrace_core::time_util::now_in_for(&timezone);
+        store.record(&now_fixed, "cpu_percent", hs.cpu_percent);
+        store.record(&now_fixed, "mem_percent", mem_percent);
+        store.record(
+            &now_fixed,
+            "mem_used_mb",
+            hs.memory_used_bytes as f64 / 1_048_576.0,
+        );
+        if cpu_temp >= 0.0 {
+            store.record(&now_fixed, "cpu_temp_c", cpu_temp);
+        }
+        if gpu_usage >= 0.0 {
+            store.record(&now_fixed, "gpu_usage_percent", gpu_usage);
+        }
+        if gpu_temp >= 0.0 {
+            store.record(&now_fixed, "gpu_temp_c", gpu_temp);
+        }
+        store.record(&now_fixed, "net_down_bps", ns.download_bytes_per_sec as f64);
+        store.record(&now_fixed, "net_up_bps", ns.upload_bytes_per_sec as f64);
+        if last_flush.elapsed() >= std::time::Duration::from_secs(60) {
+            let _ = store.flush();
+            last_flush = std::time::Instant::now();
+        }
+
         // 等待 1 秒（或 stop 事件触发）。事件句柄异常时退化为固定 1s 节奏。
         let wait = unsafe { WaitForSingleObject(stop_event, 1000) };
         if wait == WAIT_OBJECT_0 {
             break;
         }
     }
+
+    let _ = store.flush();
 
     unsafe {
         if !stop_event.is_null() {

@@ -170,7 +170,8 @@
     "mem": "内存",
     "cpuTemp": "CPU 温度",
     "gpuTemp": "GPU 温度",
-    "empty": "暂无数据"
+    "empty": "暂无数据",
+    "noMetrics": "当日无该监控记录（监控数据仅覆盖运行时段）"
   },
   "network": {
     "download": "下载",
