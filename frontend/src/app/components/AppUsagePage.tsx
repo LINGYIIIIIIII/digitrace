@@ -40,6 +40,11 @@ const PIE_COLORS = [
   '#64748b',
 ];
 
+/** 截断长应用名（图表 X 轴标签用；悬停 Tooltip 仍显示全名）。 */
+function truncateLabel(name: string, max: number): string {
+  return name.length > max ? `${name.slice(0, max)}…` : name;
+}
+
 /** 日期范围边界按配置时区计算（与应用统计页一致）。 */
 function rangeFor(
   key: RangeKey,
@@ -165,7 +170,14 @@ export default function AppUsagePage() {
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={top10.map((a) => ({ name: a.app_name, 时长: a.active_seconds }))} margin={{ left: -14, right: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} interval={0} angle={-20} textAnchor="end" height={44} />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 10, fill: 'var(--chart-tick)' }}
+                      interval={0}
+                      angle={0}
+                      height={32}
+                      tickFormatter={(v) => truncateLabel(String(v), 6)}
+                    />
                     <YAxis tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} tickFormatter={formatAxisSeconds} width={48} />
                     <Tooltip
                       cursor={{ fill: 'rgba(47,109,246,0.06)' }}

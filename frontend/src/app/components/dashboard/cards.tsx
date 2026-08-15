@@ -98,6 +98,11 @@ function niceCeil(v: number): number {
   return nice * base;
 }
 
+/** 截断长应用名（图表 X 轴标签用；悬停 Tooltip 与下方列表仍显示全名）。 */
+function truncateLabel(name: string, max: number): string {
+  return name.length > max ? `${name.slice(0, max)}…` : name;
+}
+
 const CHART_H: Record<CardSize, string> = {
   '1x1': 'h-20',
   '1x2': 'h-28',
@@ -416,7 +421,14 @@ function AppUsageContent({
             margin={{ left: 0, right: 8 }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-            <XAxis dataKey="name" tick={{ fontSize: 9 }} interval={0} angle={-20} textAnchor="end" height={30} />
+            <XAxis
+              dataKey="name"
+              tick={{ fontSize: 9 }}
+              interval={0}
+              angle={0}
+              height={30}
+              tickFormatter={(v) => truncateLabel(String(v), isNarrow(size) ? 5 : 8)}
+            />
             <YAxis tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} tickFormatter={formatAxisSeconds} width={42} />
             <Tooltip
               cursor={{ fill: 'rgba(47,109,246,0.06)' }}
