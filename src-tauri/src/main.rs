@@ -264,6 +264,19 @@ fn main() {
                 });
             }
 
+            // 周期性收缩主进程工作集：长驻应用把空闲代码页/缓存页还给系统，
+            // 让任务管理器里主进程的占用贴近真实（按需访问时自动换回）。
+            std::thread::spawn(|| loop {
+                std::thread::sleep(std::time::Duration::from_secs(300));
+                unsafe {
+                    let _ = windows_sys::Win32::System::Threading::SetProcessWorkingSetSize(
+                        windows_sys::Win32::System::Threading::GetCurrentProcess(),
+                        usize::MAX,
+                        usize::MAX,
+                    );
+                }
+            });
+
             Ok(())
         })
         // 关闭窗口时隐藏到托盘，进程继续后台运行；托盘菜单「退出」才真正退出。

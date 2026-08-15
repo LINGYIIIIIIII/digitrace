@@ -21,7 +21,8 @@
         "decorations": false,
         "resizable": true,
         "visible": false,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "additionalBrowserArgs": "--js-flags=--max-old-space-size=192"
       }
     ]
   },
