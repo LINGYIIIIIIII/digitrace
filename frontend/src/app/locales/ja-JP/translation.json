@@ -159,7 +159,18 @@
     "sessionList": "セッション記録",
     "today": "今日",
     "monthView": "月表示",
-    "yearView": "年表示"
+    "yearView": "年表示",
+    "back": "カレンダーに戻る",
+    "dayView": "日パネル",
+    "hourlyTitle": "24時間アクティブ",
+    "appsTitle": "アプリ使用（Top 6）",
+    "hardwareTitle": "ハードウェア",
+    "networkTitle": "ネットワーク",
+    "cpu": "CPU",
+    "mem": "メモリ",
+    "cpuTemp": "CPU温度",
+    "gpuTemp": "GPU温度",
+    "empty": "データなし"
   },
   "network": {
     "download": "ダウンロード",
@@ -289,7 +300,9 @@
       "interval": "データ更新間隔",
       "intervalDescription": "ダッシュボードとタイトルバーのリアルタイムデータ更新頻度。",
       "liveInterval": "リアルタイムデータ更新間隔",
-      "liveIntervalDescription": "ハードウェア監視・ネットワーク監視のリアルタイム曲線の更新頻度（1秒にすると滑らかですが負荷はやや上がります）。"
+      "liveIntervalDescription": "ハードウェア監視・ネットワーク監視のリアルタイム曲線の更新頻度（1秒にすると滑らかですが負荷はやや上がります）。",
+      "liveWindow": "リアルタイム曲線の保持時間",
+      "liveWindowDescription": "秒単位のネットワークサンプルをバックエンドのメモリに保持する時間（再起動でクリア。長期間は分単位の履歴でカバー）。"
     },
     "timezone": {
       "title": "日付タイムゾーン",

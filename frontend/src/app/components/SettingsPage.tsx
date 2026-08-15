@@ -134,6 +134,13 @@ const LIVE_REFRESH_INTERVAL_OPTIONS = [
   { value: '10', label: '10 秒' },
 ];
 
+const NETWORK_LIVE_WINDOW_OPTIONS = [
+  { value: '60', label: '1 分钟' },
+  { value: '120', label: '2 分钟' },
+  { value: '300', label: '5 分钟' },
+  { value: '600', label: '10 分钟' },
+];
+
 function SettingRow({
   icon,
   title,
@@ -490,6 +497,20 @@ const [driverStatus, setDriverStatus] = useState<CpuTemperatureDto | null>(null)
                       value={String(config?.live_refresh_interval_seconds ?? 1)}
                       onChange={(v) => patchConfig({ live_refresh_interval_seconds: Number(v) })}
                       options={LIVE_REFRESH_INTERVAL_OPTIONS}
+                      size="sm"
+                    />
+                  </div>
+                </SettingRow>
+                <SettingRow
+                  icon={<RefreshCw className="h-4 w-4" />}
+                  title={t('settings.refresh.liveWindow')}
+                  description={t('settings.refresh.liveWindowDescription')}
+                >
+                  <div className="w-32">
+                    <Select
+                      value={String(config?.network_live_window_seconds ?? 300)}
+                      onChange={(v) => patchConfig({ network_live_window_seconds: Number(v) })}
+                      options={NETWORK_LIVE_WINDOW_OPTIONS}
                       size="sm"
                     />
                   </div>

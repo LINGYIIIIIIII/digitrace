@@ -5,6 +5,7 @@ export interface AppConfig {
   idle_threshold_minutes: number;
   refresh_interval_seconds: number;
   live_refresh_interval_seconds: number;
+  network_live_window_seconds: number;
   minimize_to_tray: boolean;
   start_minimized: boolean;
   auto_start_tracking: boolean;
@@ -88,6 +89,30 @@ export interface NetworkSnapshotDto {
   session_upload_bytes: number;
   session_download_bytes: number;
   adapter_count: number;
+}
+
+/** 秒级网络样本（实时曲线缓冲）。 */
+export interface NetSampleDto {
+  ts: number;
+  down: number;
+  up: number;
+}
+
+/** 日历日仪表盘：某日历日的分钟级指标点（avg）。 */
+export interface DayMetricPointDto {
+  minute: number;
+  avg: number;
+}
+
+/** 日历日仪表盘：硬件/温度/网络分钟级序列。 */
+export interface DayMetricsDto {
+  cpu_percent: DayMetricPointDto[];
+  mem_percent: DayMetricPointDto[];
+  cpu_temp_c: DayMetricPointDto[];
+  gpu_usage_percent: DayMetricPointDto[];
+  gpu_temp_c: DayMetricPointDto[];
+  net_down_bps: DayMetricPointDto[];
+  net_up_bps: DayMetricPointDto[];
 }
 
 export interface NetAppUsageDto {

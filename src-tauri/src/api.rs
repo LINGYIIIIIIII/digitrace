@@ -75,6 +75,35 @@ pub struct DaySessionDto {
     pub started_at: String,
 }
 
+/// 秒级网络样本（实时曲线缓冲返回项）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NetSampleDto {
+    /// Unix 毫秒。
+    pub ts: i64,
+    pub down: u64,
+    pub up: u64,
+}
+
+/// 日历日仪表盘：某日历日的分钟级指标点（avg）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DayMetricPointDto {
+    /// 当日分钟序号 0..1439。
+    pub minute: u32,
+    pub avg: f64,
+}
+
+/// 日历日仪表盘：硬件/温度/网络分钟级序列（按配置时区的"日"）。
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct DayMetricsDto {
+    pub cpu_percent: Vec<DayMetricPointDto>,
+    pub mem_percent: Vec<DayMetricPointDto>,
+    pub cpu_temp_c: Vec<DayMetricPointDto>,
+    pub gpu_usage_percent: Vec<DayMetricPointDto>,
+    pub gpu_temp_c: Vec<DayMetricPointDto>,
+    pub net_down_bps: Vec<DayMetricPointDto>,
+    pub net_up_bps: Vec<DayMetricPointDto>,
+}
+
 /// A day's detail: summary + sessions + diary.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DayDetailDto {
@@ -106,6 +135,8 @@ pub struct ConfigDto {
     pub refresh_interval_seconds: u64,
     /// 实时页面（硬件监控 / 网络监控）的刷新间隔（秒）。
     pub live_refresh_interval_seconds: u64,
+    /// 实时网络曲线的内存留存窗口（秒）：秒级样本保留时长（默认 300 = 5 分钟）。
+    pub network_live_window_seconds: u64,
     pub excluded_apps: Vec<String>,
     pub db_path: String,
     /// Launch directly to the system tray (no window) — used by silent
@@ -417,6 +448,7 @@ impl TimeTraceApi {
             idle_threshold_minutes: config.idle_threshold_minutes,
             refresh_interval_seconds: config.refresh_interval_seconds,
             live_refresh_interval_seconds: config.live_refresh_interval_seconds,
+            network_live_window_seconds: config.network_live_window_seconds,
             excluded_apps: config.excluded_apps.clone(),
             db_path: self.db_path.clone(),
             start_minimized: config.start_minimized,
@@ -446,6 +478,9 @@ impl TimeTraceApi {
         app_config.refresh_interval_seconds = config.refresh_interval_seconds.clamp(1, 3600);
         app_config.live_refresh_interval_seconds =
             config.live_refresh_interval_seconds.clamp(1, 3600);
+        app_config.network_live_window_seconds = config.network_live_window_seconds.clamp(60, 600);
+        self.monitor_core
+            .set_live_window(config.network_live_window_seconds);
         app_config.health_reminder_minutes = config.health_reminder_minutes.clamp(5, 1440);
         app_config.health_break_minutes = config.health_break_minutes.clamp(1, 1440);
         app_config.excluded_apps = config.excluded_apps;
@@ -493,6 +528,39 @@ impl TimeTraceApi {
             session_upload_bytes: s.session_upload_bytes,
             session_download_bytes: s.session_download_bytes,
             adapter_count: s.adapters.len() as i64,
+        }
+    }
+
+    /// 实时曲线窗口：最近 `seconds` 秒的秒级样本（缺省用配置窗口，默认 5 分钟）。
+    pub fn get_network_live_window(&self, seconds: Option<u64>) -> Vec<NetSampleDto> {
+        self.monitor_core
+            .live_network_window(seconds)
+            .into_iter()
+            .map(|s| NetSampleDto {
+                ts: s.ts,
+                down: s.down_bps,
+                up: s.up_bps,
+            })
+            .collect()
+    }
+
+    /// 日历日仪表盘：某日历日（00:00–24:00，按配置时区）的硬件/温度/网络分钟级序列。
+    pub fn get_day_metrics(&self, date: String) -> DayMetricsDto {
+        let q = |metric: &str| {
+            self.monitor_core
+                .metric_day(metric, &date)
+                .into_iter()
+                .map(|(minute, avg)| DayMetricPointDto { minute, avg })
+                .collect()
+        };
+        DayMetricsDto {
+            cpu_percent: q("cpu_percent"),
+            mem_percent: q("mem_percent"),
+            cpu_temp_c: q("cpu_temp_c"),
+            gpu_usage_percent: q("gpu_usage_percent"),
+            gpu_temp_c: q("gpu_temp_c"),
+            net_down_bps: q("net_down_bps"),
+            net_up_bps: q("net_up_bps"),
         }
     }
 
@@ -1029,6 +1097,19 @@ pub fn set_config(
 #[tauri::command]
 pub fn get_network_snapshot(state: State<'_, AppState>) -> NetworkSnapshotDto {
     lock(&state).get_network_snapshot()
+}
+
+#[tauri::command]
+pub fn get_network_live_window(
+    state: State<'_, AppState>,
+    seconds: Option<u64>,
+) -> Vec<NetSampleDto> {
+    lock(&state).get_network_live_window(seconds)
+}
+
+#[tauri::command]
+pub fn get_day_metrics(state: State<'_, AppState>, date: String) -> DayMetricsDto {
+    lock(&state).get_day_metrics(date)
 }
 
 #[tauri::command]

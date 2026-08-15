@@ -159,7 +159,18 @@
     "sessionList": "会话记录",
     "today": "今天",
     "monthView": "月视图",
-    "yearView": "年视图"
+    "yearView": "年视图",
+    "back": "返回日历",
+    "dayView": "日面板",
+    "hourlyTitle": "24 小时活跃",
+    "appsTitle": "应用使用（Top 6）",
+    "hardwareTitle": "硬件曲线",
+    "networkTitle": "网络曲线",
+    "cpu": "CPU",
+    "mem": "内存",
+    "cpuTemp": "CPU 温度",
+    "gpuTemp": "GPU 温度",
+    "empty": "暂无数据"
   },
   "network": {
     "download": "下载",
@@ -289,7 +300,9 @@
       "interval": "数据刷新间隔",
       "intervalDescription": "仪表盘与顶栏实时数据的刷新频率（顶栏今日活跃/空闲跟随此间隔）。",
       "liveInterval": "实时数据刷新间隔",
-      "liveIntervalDescription": "硬件监控与网络监控实时曲线的刷新频率（选 1 秒更顺滑，占用略高）。"
+      "liveIntervalDescription": "硬件监控与网络监控实时曲线的刷新频率（选 1 秒更顺滑，占用略高）。",
+      "liveWindow": "实时曲线保留时长",
+      "liveWindowDescription": "网络实时曲线在后端内存保留的时间（秒级样本，重启清零；长周期由分钟级历史覆盖）。"
     },
     "timezone": {
       "title": "日期时区",

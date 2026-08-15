@@ -290,6 +290,8 @@ fn main() {
             api::get_config,
             api::set_config,
             api::get_network_snapshot,
+            api::get_network_live_window,
+            api::get_day_metrics,
             api::get_net_apps,
             api::get_attributed_usage,
             health::get_health_snapshot,

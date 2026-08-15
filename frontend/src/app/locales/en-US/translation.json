@@ -159,7 +159,18 @@
     "sessionList": "Sessions",
     "today": "Today",
     "monthView": "Month",
-    "yearView": "Year"
+    "yearView": "Year",
+    "back": "Back to calendar",
+    "dayView": "Day panel",
+    "hourlyTitle": "24h activity",
+    "appsTitle": "App usage (Top 6)",
+    "hardwareTitle": "Hardware",
+    "networkTitle": "Network",
+    "cpu": "CPU",
+    "mem": "Memory",
+    "cpuTemp": "CPU temp",
+    "gpuTemp": "GPU temp",
+    "empty": "No data"
   },
   "network": {
     "download": "Download",
@@ -289,7 +300,9 @@
       "interval": "Data refresh interval",
       "intervalDescription": "How often dashboard and title bar live data refresh.",
       "liveInterval": "Live data refresh interval",
-      "liveIntervalDescription": "How often hardware and network live curves refresh (1s is smoother but uses a bit more resources)."
+      "liveIntervalDescription": "How often hardware and network live curves refresh (1s is smoother but uses a bit more resources).",
+      "liveWindow": "Live curve retention",
+      "liveWindowDescription": "How long second-level network samples are kept in the backend memory buffer (cleared on restart; longer periods come from the minute-level history)."
     },
     "timezone": {
       "title": "Date timezone",

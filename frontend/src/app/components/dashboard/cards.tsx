@@ -154,27 +154,33 @@ function CardShell({
 function useNetworkLive(): { snapshot: NetworkSnapshotDto | null; points: { t: string; down: number; up: number }[] } {
   const { config } = useAppStore(useShallow((s) => ({ config: s.config })));
   const refreshSeconds = config?.live_refresh_interval_seconds ?? 1;
+  const windowSeconds = config?.network_live_window_seconds ?? 300;
   const [snapshot, setSnapshot] = useState<NetworkSnapshotDto | null>(null);
   const [points, setPoints] = useState<{ t: string; down: number; up: number }[]>([]);
-  const pointsRef = useRef<{ t: string; down: number; up: number }[]>([]);
 
+  // 实时曲线数据源 = 后端秒级环形缓冲（最近 network_live_window_seconds 秒）：
+  // 任何时刻进入页面都能看到完整的最近窗口，切页不丢；采样由后端监控线程统一完成。
   useEffect(() => {
     let disposed = false;
+    const pad = (n: number) => String(n).padStart(2, '0');
     const tick = async () => {
       try {
-        const snap = await apiService.getNetworkSnapshot();
+        const [snap, samples] = await Promise.all([
+          apiService.getNetworkSnapshot(),
+          apiService.getNetworkLiveWindow(windowSeconds),
+        ]);
         if (disposed) return;
         setSnapshot(snap);
-        const now = new Date();
-        const point = {
-          t: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`,
-          down: snap.download_bytes_per_sec,
-          up: snap.upload_bytes_per_sec,
-        };
-        const next = [...pointsRef.current, point];
-        if (next.length > 60) next.shift();
-        pointsRef.current = next;
-        setPoints(next);
+        setPoints(
+          samples.map((s) => {
+            const d = new Date(s.ts);
+            return {
+              t: `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`,
+              down: s.down,
+              up: s.up,
+            };
+          }),
+        );
       } catch {
         /* 静默降级 */
       }
@@ -185,7 +191,7 @@ function useNetworkLive(): { snapshot: NetworkSnapshotDto | null; points: { t: s
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [refreshSeconds]);
+  }, [refreshSeconds, windowSeconds]);
 
   return { snapshot, points };
 }
@@ -734,7 +740,12 @@ function NetworkLiveContent({ points, size }: { points: { t: string; down: numbe
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={points} margin={{ left: 0, right: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="t" tick={{ fontSize: 9 }} interval={9} />
+              <XAxis
+                dataKey="t"
+                tick={{ fontSize: 9 }}
+                tickFormatter={(v) => String(v).slice(0, 5)}
+                interval={Math.max(4, Math.floor(points.length / 10) - 1)}
+              />
               <YAxis
                 domain={[0, yMax]}
                 tick={{ fontSize: compact ? 9 : 10 }}

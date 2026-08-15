@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   Bar,
@@ -51,27 +51,32 @@ export default function NetworkPage() {
   const [historyUp, setHistoryUp] = useState<HistoryPointDto[]>([]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [historyWindow, setHistoryWindow] = useState<WindowKey>(10);
-  const livePointsRef = useRef<{ t: string; down: number; up: number }[]>([]);
   const [livePoints, setLivePoints] = useState<{ t: string; down: number; up: number }[]>([]);
 
-  // 实时快照轮询（间隔可在设置中选 1/2/5/10 秒），本地保留最近 60 个点。
+  // 实时快照 + 秒级曲线窗口（后端环形缓冲，最近 network_live_window_seconds 秒，
+  // 切页/刷新不丢历史；间隔可在设置中选 1/2/5/10 秒）。
   useEffect(() => {
     let disposed = false;
+    const windowSeconds = config?.network_live_window_seconds ?? 300;
+    const pad = (n: number) => String(n).padStart(2, '0');
     const tick = async () => {
       try {
-        const snap = await apiService.getNetworkSnapshot();
+        const [snap, samples] = await Promise.all([
+          apiService.getNetworkSnapshot(),
+          apiService.getNetworkLiveWindow(windowSeconds),
+        ]);
         if (disposed) return;
         setSnapshot(snap);
-        const now = new Date();
-        const point = {
-          t: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`,
-          down: snap.download_bytes_per_sec,
-          up: snap.upload_bytes_per_sec,
-        };
-        const next = [...livePointsRef.current, point];
-        if (next.length > 60) next.shift();
-        livePointsRef.current = next;
-        setLivePoints(next);
+        setLivePoints(
+          samples.map((s) => {
+            const d = new Date(s.ts);
+            return {
+              t: `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`,
+              down: s.down,
+              up: s.up,
+            };
+          }),
+        );
       } catch {
         /* 静默 */
       }
@@ -82,7 +87,7 @@ export default function NetworkPage() {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [refreshSeconds]);
+  }, [refreshSeconds, config?.network_live_window_seconds]);
 
   // 历史（下载 + 上传），范围切换时加载。
   useEffect(() => {
@@ -291,7 +296,12 @@ export default function NetworkPage() {
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={livePoints} margin={{ left: -14, right: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-              <XAxis dataKey="t" tick={{ fontSize: 9 }} interval={9} />
+              <XAxis
+                dataKey="t"
+                tick={{ fontSize: 9 }}
+                tickFormatter={(v) => String(v).slice(0, 5)}
+                interval={Math.max(4, Math.floor(livePoints.length / 10) - 1)}
+              />
               <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => formatBytes(Number(v), true)} width={74} />
               <Tooltip
                 cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}

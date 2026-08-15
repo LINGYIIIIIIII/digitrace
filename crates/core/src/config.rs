@@ -106,6 +106,11 @@ pub struct AppConfig {
     #[serde(default = "default_true")]
     pub launch_show_window: bool,
 
+    /// 实时网络曲线的内存留存窗口（秒）：秒级样本在内存环形缓冲保留该时长，
+    /// 实时速率曲线在任何时刻都显示最近 N 秒（默认 5 分钟，重启清零）。
+    #[serde(default = "default_network_live_window")]
+    pub network_live_window_seconds: u64,
+
     /// 开机自启是否以管理员权限运行（计划任务 /rl highest，开机静默提权）。
     #[serde(default)]
     pub autostart_elevated: bool,
@@ -122,6 +127,9 @@ fn default_refresh_interval() -> u64 {
 }
 fn default_live_refresh_interval() -> u64 {
     1
+}
+fn default_network_live_window() -> u64 {
+    300
 }
 fn default_true() -> bool {
     true
@@ -184,6 +192,7 @@ impl Default for AppConfig {
             update_check_hour: None,
             tray_items: default_tray_items(),
             launch_show_window: true,
+            network_live_window_seconds: default_network_live_window(),
             autostart_elevated: false,
         }
     }

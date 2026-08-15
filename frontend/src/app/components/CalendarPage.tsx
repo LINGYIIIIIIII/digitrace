@@ -1,17 +1,33 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { CalendarRange, ChevronLeft, ChevronRight, LocateFixed, X } from 'lucide-react';
+import { ArrowLeft, CalendarRange, ChevronLeft, ChevronRight, LocateFixed } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { apiService } from '../services/api';
 import { useAppStore } from '../store/app-store';
-import type { DayDetailDto } from '../types';
+import type { DayDetailDto, DayMetricsDto } from '../types';
 import { todayStr } from '../lib/datetime';
 import { Card } from './ui/index';
+import ChartTooltip from './dashboard/ChartTooltip';
 
 const WEEK_LABELS = ['1', '2', '3', '4', '5', '6', '日'];
+/** Top 应用堆叠柱的颜色（与 Pie 配色一致）。 */
+const APP_COLORS = ['#2f6df6', '#7c5cf0', '#0ea5e9', '#10b981', '#f59e0b', '#ec4899'];
 
 function formatDuration(seconds: number): string {
   if (!seconds || seconds <= 0) return '0 秒';
@@ -23,6 +39,18 @@ function formatDuration(seconds: number): string {
   return `${s} 秒`;
 }
 
+function formatBytes(bytes: number, perSecond = false): string {
+  if (!bytes || bytes <= 0) return perSecond ? '0.0 B/s' : '0.0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(1)} ${units[unit]}${perSecond ? '/s' : ''}`;
+}
+
 function heatColor(seconds: number, max: number): string {
   if (seconds <= 0 || max <= 0) return 'bg-card hover:bg-accent';
   const ratio = seconds / max;
@@ -32,16 +60,389 @@ function heatColor(seconds: number, max: number): string {
   return 'bg-primary/85 hover:bg-primary';
 }
 
+/** 分钟序号 → "HH:MM"。 */
+function fmtMin(minute: number): string {
+  const hh = Math.floor(minute / 60);
+  const mm = minute % 60;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+/**
+ * contain-fit 网格测量：容器宽度=卡片宽、高度=填充到窗口底部（不滚动），
+ * 按 1:1 格计算 cell = min(可用宽/cols, 可用高/rows)，网格居中、长边留白。
+ * 用 getBoundingClientRect（渲染后坐标）计算，对全局 UI 缩放（zoom）也正确。
+ */
+function useContainFit(
+  containerRef: RefObject<HTMLDivElement | null>,
+  active: boolean,
+  cols: number,
+  rows: number,
+  headerPx: number,
+): number {
+  const [cell, setCell] = useState(24);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!active || !el) return;
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      const availH = Math.max(window.innerHeight - rect.top - 12, 160);
+      const availW = Math.max(rect.width - 4, 80);
+      if (Math.abs(el.clientHeight - availH) > 1) {
+        el.style.height = `${availH}px`;
+      }
+      const gap = 4;
+      const c = Math.min(
+        (availW - gap * (cols - 1)) / cols,
+        (availH - headerPx * rows - gap * (rows - 1)) / rows,
+      );
+      setCell(Math.max(8, Math.floor(c)));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [active, cols, rows, headerPx, containerRef]);
+  return cell;
+}
+
+function SectionTitle({ children }: { children: ReactNode }) {
+  return <div className="border-b border-border/60 px-4 py-3 text-sm font-semibold">{children}</div>;
+}
+
+/** 某日历日的仪表盘：24h 活跃 / 应用 / 硬件 / 网络 / 会话。 */
+function DayPanel({ date, onBack }: { date: string; onBack: () => void }) {
+  const { t } = useTranslation();
+  const [detail, setDetail] = useState<DayDetailDto | null>(null);
+  const [hourly, setHourly] = useState<number[]>([]);
+  const [metrics, setMetrics] = useState<DayMetricsDto | null>(null);
+  const [topApps, setTopApps] = useState<{ app: string; hours: number[] }[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [d, h, m, hourApps] = await Promise.all([
+          apiService.getDayDetail(date),
+          apiService.getDayHourly(date),
+          apiService.getDayMetrics(date),
+          Promise.all(Array.from({ length: 24 }, (_, hh) => apiService.getHourApps(date, hh))),
+        ]);
+        if (cancelled) return;
+        setDetail(d);
+        setHourly(h);
+        setMetrics(m);
+        // 聚合 24 小时每小时的应用使用 → Top 6
+        const byApp = new Map<string, number[]>();
+        hourApps.forEach((apps, hh) => {
+          for (const a of apps) {
+            const arr = byApp.get(a.app_name) ?? new Array<number>(24).fill(0);
+            arr[hh] = (arr[hh] ?? 0) + a.active_seconds;
+            byApp.set(a.app_name, arr);
+          }
+        });
+        const top = [...byApp.entries()]
+          .map(([app, hours]) => ({ app, hours, total: hours.reduce((a, b) => a + b, 0) }))
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 6)
+          .map(({ app, hours }) => ({ app, hours }));
+        setTopApps(top);
+      } catch {
+        /* 静默 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [date]);
+
+  const hourlyData = hourly.map((v, h) => ({ h, v }));
+  const stackedData = Array.from({ length: 24 }, (_, h) => {
+    const row: Record<string, number | string> = { h };
+    for (const { app, hours } of topApps) row[app] = hours[h] ?? 0;
+    return row;
+  });
+
+  // 分钟级序列降采样到 ≤96 点
+  const cpuData = useMemo(() => {
+    const memByMin = new Map((metrics?.mem_percent ?? []).map((p) => [p.minute, p.avg]));
+    const raw = (metrics?.cpu_percent ?? []).map((p) => ({
+      t: fmtMin(p.minute),
+      cpu: p.avg,
+      mem: memByMin.get(p.minute) ?? 0,
+    }));
+    const step = Math.max(1, Math.floor(raw.length / 96));
+    return raw.filter((_, i) => i % step === 0);
+  }, [metrics]);
+
+  const tempData = useMemo(() => {
+    const gpuByMin = new Map((metrics?.gpu_temp_c ?? []).map((p) => [p.minute, p.avg]));
+    const raw = (metrics?.cpu_temp_c ?? []).map((p) => ({
+      t: fmtMin(p.minute),
+      cpu: p.avg,
+      gpu: gpuByMin.get(p.minute) ?? null,
+    }));
+    const step = Math.max(1, Math.floor(raw.length / 96));
+    return raw.filter((_, i) => i % step === 0);
+  }, [metrics]);
+
+  const netData = useMemo(() => {
+    const byMin = new Map<number, { down: number; up: number }>();
+    for (const p of metrics?.net_down_bps ?? []) {
+      const cur = byMin.get(p.minute) ?? { down: 0, up: 0 };
+      cur.down = p.avg;
+      byMin.set(p.minute, cur);
+    }
+    for (const p of metrics?.net_up_bps ?? []) {
+      const cur = byMin.get(p.minute) ?? { down: 0, up: 0 };
+      cur.up = p.avg;
+      byMin.set(p.minute, cur);
+    }
+    const minutes = [...byMin.keys()].sort((a, b) => a - b);
+    const step = Math.max(1, Math.floor(minutes.length / 96));
+    return minutes
+      .filter((_, i) => i % step === 0)
+      .map((minute) => {
+        const v = byMin.get(minute)!;
+        return { t: fmtMin(minute), down: v.down, up: v.up };
+      });
+  }, [metrics]);
+
+  const hasHw = cpuData.length > 0 || tempData.length > 0;
+  const hasNet = netData.length > 0;
+  const hasApps = topApps.length > 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs hover:bg-accent"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          {t('calendar.back')}
+        </button>
+        <span className="text-sm font-semibold">{date} · {t('calendar.dayView')}</span>
+      </div>
+
+      {/* 当日统计 */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card className="p-3">
+          <div className="text-xs text-muted-foreground">{t('calendar.active')}</div>
+          <div className="mt-0.5 text-lg font-semibold tabular-nums">
+            {detail ? formatDuration(detail.active_seconds) : '--'}
+          </div>
+        </Card>
+        <Card className="p-3">
+          <div className="text-xs text-muted-foreground">{t('calendar.idle')}</div>
+          <div className="mt-0.5 text-lg font-semibold tabular-nums">
+            {detail ? formatDuration(detail.idle_seconds) : '--'}
+          </div>
+        </Card>
+        <Card className="p-3">
+          <div className="text-xs text-muted-foreground">{t('calendar.sessions')}</div>
+          <div className="mt-0.5 text-lg font-semibold tabular-nums">{detail?.session_count ?? '--'}</div>
+        </Card>
+      </div>
+
+      {/* 24h 活跃 */}
+      <Card padding="none" className="overflow-hidden">
+        <SectionTitle>{t('calendar.hourlyTitle')}</SectionTitle>
+        <div className="h-44 p-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={hourlyData} margin={{ left: -14, right: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+              <XAxis dataKey="h" tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} interval={2} />
+              <YAxis
+                tick={{ fontSize: 10, fill: 'var(--chart-tick)' }}
+                tickFormatter={(v) => formatDuration(Number(v)).split(' ')[0]}
+                width={48}
+              />
+              <Tooltip
+                cursor={{ fill: 'rgba(47,109,246,0.06)' }}
+                content={
+                  <ChartTooltip
+                    labelFormatter={(h) => `${h} 时`}
+                    valueFormatter={(v) => formatDuration(Number(v))}
+                  />
+                }
+              />
+              <Bar dataKey="v" fill="var(--chart-primary)" radius={[3, 3, 0, 0]} isAnimationActive={false} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
+
+      {/* 应用使用 Top 6（24h 堆叠） */}
+      <Card padding="none" className="overflow-hidden">
+        <SectionTitle>{t('calendar.appsTitle')}</SectionTitle>
+        <div className="h-56 p-4">
+          {hasApps ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={stackedData} margin={{ left: -14, right: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                <XAxis dataKey="h" tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} interval={2} />
+                <YAxis
+                  tick={{ fontSize: 10, fill: 'var(--chart-tick)' }}
+                  tickFormatter={(v) => formatDuration(Number(v)).split(' ')[0]}
+                  width={48}
+                />
+                <Tooltip
+                  cursor={{ fill: 'rgba(47,109,246,0.06)' }}
+                  content={
+                    <ChartTooltip
+                      labelFormatter={(h) => `${h} 时`}
+                      valueFormatter={(v) => formatDuration(Number(v))}
+                    />
+                  }
+                />
+                {topApps.map(({ app }, i) => (
+                  <Bar
+                    key={app}
+                    dataKey={app}
+                    stackId="apps"
+                    fill={APP_COLORS[i % APP_COLORS.length]}
+                    radius={i === 0 ? [3, 3, 0, 0] : [0, 0, 0, 0]}
+                    isAnimationActive={false}
+                  />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="flex h-full items-center justify-center text-sm text-muted-foreground">{t('calendar.empty')}</p>
+          )}
+        </div>
+        {topApps.length > 0 && (
+          <div className="flex flex-wrap gap-x-3 gap-y-1 border-t border-border/60 px-4 py-2">
+            {topApps.map(({ app }, i) => (
+              <span key={app} className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: APP_COLORS[i % APP_COLORS.length] }} />
+                <span className="max-w-40 truncate">{app}</span>
+              </span>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* 硬件曲线（CPU / 内存 / 温度） */}
+      <Card padding="none" className="overflow-hidden">
+        <SectionTitle>{t('calendar.hardwareTitle')}</SectionTitle>
+        {hasHw ? (
+          <>
+            <div className="h-44 p-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={cpuData} margin={{ left: -14, right: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                  <XAxis dataKey="t" tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} interval="preserveStartEnd" />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: 'var(--chart-tick)' }}
+                    width={42}
+                    domain={[0, 100]}
+                    tickFormatter={(v) => `${v}%`}
+                  />
+                  <Tooltip
+                    cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}
+                    content={<ChartTooltip valueFormatter={(v) => `${Number(v).toFixed(1)}%`} />}
+                  />
+                  <Area type="monotone" dataKey="cpu" name={t('calendar.cpu')} stroke="#2f6df6" fill="#2f6df6" fillOpacity={0.18} strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Area type="monotone" dataKey="mem" name={t('calendar.mem')} stroke="#10b981" fill="#10b981" fillOpacity={0.15} strokeWidth={2} dot={false} isAnimationActive={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            {tempData.length > 0 && (
+              <div className="h-40 border-t border-border/60 p-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={tempData} margin={{ left: -14, right: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                    <XAxis dataKey="t" tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} interval="preserveStartEnd" />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: 'var(--chart-tick)' }}
+                      width={42}
+                      tickFormatter={(v) => `${Number(v).toFixed(0)}°`}
+                    />
+                    <Tooltip
+                      cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}
+                      content={<ChartTooltip valueFormatter={(v) => `${Number(v).toFixed(1)}°C`} />}
+                    />
+                    <Line type="monotone" dataKey="cpu" name={t('calendar.cpuTemp')} stroke="#ef4444" strokeWidth={2} dot={false} isAnimationActive={false} />
+                    {tempData.some((p) => p.gpu != null) && (
+                      <Line type="monotone" dataKey="gpu" name={t('calendar.gpuTemp')} stroke="#ec4899" strokeWidth={2} dot={false} isAnimationActive={false} />
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="py-8 text-center text-sm text-muted-foreground">{t('calendar.empty')}</p>
+        )}
+      </Card>
+
+      {/* 网络曲线（下载 / 上传） */}
+      <Card padding="none" className="overflow-hidden">
+        <SectionTitle>{t('calendar.networkTitle')}</SectionTitle>
+        {hasNet ? (
+          <div className="h-44 p-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={netData} margin={{ left: -14, right: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                <XAxis dataKey="t" tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} interval="preserveStartEnd" />
+                <YAxis
+                  tick={{ fontSize: 10, fill: 'var(--chart-tick)' }}
+                  width={52}
+                  tickFormatter={(v) => formatBytes(Number(v), true)}
+                />
+                <Tooltip
+                  cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}
+                  content={<ChartTooltip valueFormatter={(v) => formatBytes(Number(v), true)} />}
+                />
+                <Area type="monotone" dataKey="down" name={t('network.download')} stroke="#1E88E5" fill="#1E88E5" fillOpacity={0.18} strokeWidth={2} dot={false} isAnimationActive={false} />
+                <Area type="monotone" dataKey="up" name={t('network.upload')} stroke="#FB8C00" fill="#FB8C00" fillOpacity={0.15} strokeWidth={2} dot={false} isAnimationActive={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <p className="py-8 text-center text-sm text-muted-foreground">{t('calendar.empty')}</p>
+        )}
+      </Card>
+
+      {/* 会话记录 */}
+      <Card padding="none" className="overflow-hidden">
+        <SectionTitle>{t('calendar.sessionList')}</SectionTitle>
+        {detail && detail.sessions.length > 0 ? (
+          <div className="max-h-72 space-y-1 overflow-y-auto p-3">
+            {detail.sessions.map((s, i) => (
+              <div key={i} className="flex items-center justify-between rounded px-2 py-1 text-xs hover:bg-accent/40">
+                <span className="min-w-0 truncate">{s.app_name}</span>
+                <span className="ml-2 shrink-0 tabular-nums text-muted-foreground">
+                  {s.started_at} · {formatDuration(s.duration_secs)}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="py-6 text-center text-sm text-muted-foreground">{t('calendar.empty')}</p>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+type View = 'month' | 'year' | 'day';
+
 export default function CalendarPage() {
   const { t } = useTranslation();
   const { config } = useAppStore(useShallow((s) => ({ config: s.config })));
   const today = todayStr(config);
   const [year, setYear] = useState(() => Number(today.slice(0, 4)));
   const [month, setMonth] = useState(() => Number(today.slice(5, 7)) - 1); // 0-11
-  const [view, setView] = useState<'month' | 'year'>('month');
+  const [view, setView] = useState<View>('month');
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [usage, setUsage] = useState<Map<string, number>>(new Map());
   const [max, setMax] = useState(0);
-  const [detail, setDetail] = useState<DayDetailDto | null>(null);
+
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const yearGridRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,36 +501,23 @@ export default function CalendarPage() {
     [year, usage],
   );
 
-  const handleSelectDate = useCallback(async (date: string) => {
-    try {
-      setDetail(await apiService.getDayDetail(date));
-    } catch {
-      setDetail(null);
-    }
+  const monthCell = useContainFit(gridRef, view === 'month', 7, 6, 0);
+
+  const yearCols = useMemo(() => {
+    if (typeof window === 'undefined') return 4;
+    return window.innerWidth >= 1000 ? 4 : window.innerWidth >= 700 ? 3 : 2;
   }, []);
+  const yearRows = Math.ceil(12 / yearCols);
+  const yearCell = useContainFit(yearGridRef, view === 'year', yearCols * 7, yearRows * 6, 22);
 
-  const shiftMonth = useCallback(
-    (delta: number) => {
-      const next = new Date(Date.UTC(year, month + delta, 1));
-      setYear(next.getUTCFullYear());
-      setMonth(next.getUTCMonth());
-      setDetail(null);
-    },
-    [year, month],
-  );
-
-  const shiftYear = useCallback(
-    (delta: number) => {
-      setYear((y) => y + delta);
-      setDetail(null);
-    },
-    [],
-  );
+  const openDay = useCallback((date: string) => {
+    setSelectedDate(date);
+    setView('day');
+  }, []);
 
   const goToMonth = useCallback((m: number) => {
     setMonth(m);
     setView('month');
-    setDetail(null);
   }, []);
 
   const goToToday = useCallback(() => {
@@ -137,12 +525,32 @@ export default function CalendarPage() {
     setYear(Number(d.slice(0, 4)));
     setMonth(Number(d.slice(5, 7)) - 1);
     setView('month');
-    setDetail(null);
+    setSelectedDate(null);
   }, [config]);
 
+  const shiftMonth = useCallback(
+    (delta: number) => {
+      const next = new Date(Date.UTC(year, month + delta, 1));
+      setYear(next.getUTCFullYear());
+      setMonth(next.getUTCMonth());
+    },
+    [year, month],
+  );
+
+  const shiftYear = useCallback((delta: number) => setYear((y) => y + delta), []);
+
+  // 日视图：整页仪表盘（允许滚动）。
+  if (view === 'day' && selectedDate) {
+    return (
+      <div className="mx-auto max-w-4xl space-y-4">
+        <DayPanel date={selectedDate} onBack={() => setView('month')} />
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto max-w-4xl space-y-4">
-      <Card padding="none" className="overflow-hidden">
+    <div className="mx-auto flex max-w-4xl flex-col space-y-4">
+      <Card padding="none" className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* 工具栏：年份跳转 + 月份切换 + 视图切换 */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
           <div className="flex items-center gap-1">
@@ -214,121 +622,108 @@ export default function CalendarPage() {
 
         <AnimatePresence mode="wait" initial={false}>
           {view === 'year' ? (
-            /* 年视图：4×3 十二个月 */
+            /* 年视图：迷你月历，contain-fit 居中，无滚动 */
             <motion.div
               key="year"
+              className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3"
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
             >
-              <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 lg:grid-cols-4">
-                {yearMonths.map(({ month: m, cells, total }) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => goToMonth(m)}
-                    className="rounded-xl border border-border/60 p-2 text-left transition-colors hover:border-primary/30 hover:bg-accent/40"
-                  >
-                    <div className="mb-1.5 flex items-baseline justify-between">
-                      <span className="text-xs font-semibold">{m + 1} 月</span>
-                      <span className="text-[10px] tabular-nums text-muted-foreground">
-                        {formatDuration(total)}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-7 gap-px">
-                      {cells.map((date, i) =>
-                        date ? (
-                          <span
-                            key={date}
-                            className={'block aspect-square rounded-[2px] ' + heatColor(usage.get(date) ?? 0, max)}
-                          />
-                        ) : (
-                          <span key={`empty-${i}`} />
-                        ),
-                      )}
-                    </div>
-                  </button>
-                ))}
+              <div ref={yearGridRef} className="flex w-full items-center justify-center">
+                <div
+                  className="grid gap-1"
+                  style={{
+                    gridTemplateColumns: `repeat(${yearCols}, minmax(0, 1fr))`,
+                    width: '100%',
+                  }}
+                >
+                  {yearMonths.map(({ month: m, cells, total }) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => goToMonth(m)}
+                      className="rounded-lg border border-border/60 p-1.5 text-left transition-colors hover:border-primary/30 hover:bg-accent/40"
+                    >
+                      <div className="mb-1 flex items-baseline justify-between gap-1">
+                        <span className="text-[11px] font-semibold">{m + 1} 月</span>
+                        <span className="truncate text-[9px] tabular-nums text-muted-foreground">
+                          {formatDuration(total)}
+                        </span>
+                      </div>
+                      <div
+                        className="grid gap-px"
+                        style={{
+                          gridTemplateColumns: `repeat(7, ${yearCell}px)`,
+                          gridAutoRows: `${yearCell}px`,
+                        }}
+                      >
+                        {cells.map((date, i) =>
+                          date ? (
+                            <span
+                              key={date}
+                              className={'block rounded-[2px] ' + heatColor(usage.get(date) ?? 0, max)}
+                            />
+                          ) : (
+                            <span key={`empty-${i}`} />
+                          ),
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
             </motion.div>
           ) : (
-            /* 月视图 */
+            /* 月视图：1:1 日期格，contain-fit 居中，无滚动 */
             <motion.div
               key="month"
+              className="flex min-h-0 flex-1 flex-col overflow-hidden"
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
             >
-              <div className="grid grid-cols-7 gap-1 px-3 pt-3 text-center text-xs font-medium text-muted-foreground">
+              <div className="flex justify-center gap-1 px-3 pt-2 text-center text-xs font-medium text-muted-foreground">
                 {WEEK_LABELS.map((w) => (
-                  <span key={w}>{w}</span>
+                  <span key={w} style={{ width: monthCell }}>
+                    {w}
+                  </span>
                 ))}
               </div>
-              <div className="grid grid-cols-7 gap-1 p-3">
-                {days.map((date, i) =>
-                  date ? (
-                    <button
-                      key={date}
-                      type="button"
-                      onClick={() => void handleSelectDate(date)}
-                      className={
-                        'aspect-square rounded-lg text-xs font-medium transition-colors ' +
-                        heatColor(usage.get(date) ?? 0, max)
-                      }
-                    >
-                      {Number(date.split('-')[2])}
-                    </button>
-                  ) : (
-                    <span key={`empty-${i}`} />
-                  ),
-                )}
+              <div ref={gridRef} className="flex min-h-0 flex-1 items-center justify-center p-2">
+                <div
+                  className="grid gap-1"
+                  style={{
+                    gridTemplateColumns: `repeat(7, ${monthCell}px)`,
+                    gridAutoRows: `${monthCell}px`,
+                  }}
+                >
+                  {days.map((date, i) =>
+                    date ? (
+                      <button
+                        key={date}
+                        type="button"
+                        onClick={() => openDay(date)}
+                        className={
+                          'flex items-center justify-center rounded-lg font-medium transition-colors ' +
+                          heatColor(usage.get(date) ?? 0, max)
+                        }
+                        style={{ width: monthCell, height: monthCell, fontSize: monthCell >= 22 ? 12 : 10 }}
+                      >
+                        {monthCell >= 16 ? Number(date.split('-')[2]) : ''}
+                      </button>
+                    ) : (
+                      <span key={`empty-${i}`} />
+                    ),
+                  )}
+                </div>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </Card>
-
-      {detail && view === 'month' && (
-        <Card padding="none" className="overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-            <span className="text-sm font-semibold">{detail.date}</span>
-            <button type="button" onClick={() => setDetail(null)} className="text-muted-foreground hover:text-foreground">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-3 p-4 text-sm sm:grid-cols-3">
-            <div>
-              <div className="text-xs text-muted-foreground">{t('calendar.active')}</div>
-              <div className="font-semibold">{formatDuration(detail.active_seconds)}</div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">{t('calendar.idle')}</div>
-              <div className="font-semibold">{formatDuration(detail.idle_seconds)}</div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground">{t('calendar.sessions')}</div>
-              <div className="font-semibold">{detail.session_count}</div>
-            </div>
-          </div>
-          {detail.sessions.length > 0 && (
-            <div className="border-t border-border/60 px-4 py-3">
-              <div className="mb-2 text-xs font-medium text-muted-foreground">{t('calendar.sessionList')}</div>
-              <div className="max-h-52 space-y-1 overflow-y-auto pr-1">
-                {detail.sessions.map((s, i) => (
-                  <div key={i} className="flex justify-between text-xs">
-                    <span className="min-w-0 truncate">{s.app_name}</span>
-                    <span className="ml-2 shrink-0 tabular-nums text-muted-foreground">
-                      {s.started_at} · {formatDuration(s.duration_secs)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </Card>
-      )}
     </div>
   );
 }

@@ -1,9 +1,9 @@
-//! 监控核心：1s 采样线程（网络流量）、分钟级历史存储，
-//! 以及给桥接层读取的最新网络快照。
+//! 监控核心：1s 采样线程（网络流量）、分钟级历史存储、
+//! 秒级实时曲线环形缓冲，以及给桥接层读取的最新网络快照。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -13,15 +13,27 @@ use chrono::{DateTime, Utc};
 use super::net::{NetworkSnapshot, WindowsCollector};
 use super::store::MetricStore;
 
+/// 秒级网络样本（实时曲线缓冲条目，内存态）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NetSample {
+    /// Unix 毫秒。
+    pub ts: i64,
+    pub down_bps: u64,
+    pub up_bps: u64,
+}
+
 /// 最新快照（采样线程写、桥接读）。
 pub struct MonitorState {
     pub network: RwLock<NetworkSnapshot>,
+    /// 秒级实时曲线环形缓冲（采样线程写、桥接读）。
+    pub live_net: RwLock<VecDeque<NetSample>>,
 }
 
 impl Default for MonitorState {
     fn default() -> Self {
         Self {
             network: RwLock::new(NetworkSnapshot::default()),
+            live_net: RwLock::new(VecDeque::new()),
         }
     }
 }
@@ -34,6 +46,8 @@ pub struct MonitorCore {
     etw: Option<crate::etw_net::EtwNetMonitor>,
     /// 本次启动时刻（UTC），供「本次启动」历史窗口使用。
     started_at: DateTime<Utc>,
+    /// 实时曲线留存窗口（秒），采样线程每轮读取，配置变更实时生效。
+    live_window_secs: Arc<AtomicU64>,
 }
 
 impl MonitorCore {
@@ -42,6 +56,11 @@ impl MonitorCore {
         let stop = Arc::new(AtomicBool::new(false));
         let state = Arc::new(MonitorState::default());
         let started_at = Utc::now();
+        let live_window_secs = Arc::new(AtomicU64::new(
+            crate::AppConfig::load()
+                .network_live_window_seconds
+                .clamp(60, 600),
+        ));
         let store = Arc::new(Mutex::new(MetricStore::open(db_path, 90).unwrap_or_else(
             |_| {
                 MetricStore::open(std::env::temp_dir().join("digitrace_monitor.db"), 90)
@@ -60,6 +79,7 @@ impl MonitorCore {
         let stop_flag = stop.clone();
         let s_state = state.clone();
         let s_store = store.clone();
+        let s_live_window = live_window_secs.clone();
         let handle = std::thread::Builder::new()
             .name("digitrace-monitor".to_string())
             .spawn(move || {
@@ -74,6 +94,25 @@ impl MonitorCore {
                     // 网络快照
                     let net = collector.poll();
                     *s_state.network.write().unwrap() = net.clone();
+
+                    // 秒级实时曲线环形缓冲（按配置窗口裁剪，跨权限可读的秒级历史）
+                    {
+                        let ts_ms = Utc::now().timestamp_millis();
+                        let keep_ms = (s_live_window.load(Ordering::Relaxed) * 1000) as i64;
+                        let mut buf = s_state.live_net.write().unwrap();
+                        buf.push_back(NetSample {
+                            ts: ts_ms,
+                            down_bps: net.download_bytes_per_sec,
+                            up_bps: net.upload_bytes_per_sec,
+                        });
+                        while let Some(front) = buf.front() {
+                            if ts_ms - front.ts > keep_ms {
+                                buf.pop_front();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
 
                     // 分钟级历史
                     let now = chrono::Local::now();
@@ -112,6 +151,7 @@ impl MonitorCore {
             store,
             etw,
             started_at,
+            live_window_secs,
         }
     }
 
@@ -185,6 +225,43 @@ impl MonitorCore {
                     crate::time_util::history_window(&config, mode, self.started_at);
                 s.query_window(metric, &start_day, start_minute, &end_day)
                     .ok()
+            })
+            .unwrap_or_default()
+    }
+
+    /// 实时曲线窗口：返回最近 `seconds` 秒（缺省用配置窗口）的秒级样本，升序。
+    pub fn live_network_window(&self, seconds: Option<u64>) -> Vec<NetSample> {
+        let window_ms = (seconds.unwrap_or_else(|| self.live_window_secs.load(Ordering::Relaxed))
+            * 1000) as i64;
+        let now_ms = Utc::now().timestamp_millis();
+        self.state
+            .live_net
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|s| now_ms - s.ts <= window_ms)
+            .cloned()
+            .collect()
+    }
+
+    /// 更新实时曲线留存窗口（配置变更时调用，采样线程下一轮生效）。
+    pub fn set_live_window(&self, seconds: u64) {
+        self.live_window_secs
+            .store(seconds.clamp(60, 600), Ordering::Relaxed);
+    }
+
+    /// 指定指标某日历日（00:00–24:00，按配置时区）的分钟级样本，返回 (minute, avg)。
+    pub fn metric_day(&self, metric: &str, date: &str) -> Vec<(u32, f64)> {
+        self.store
+            .lock()
+            .ok()
+            .and_then(|s| {
+                s.query_window(metric, date, 0, date).ok().map(|rows| {
+                    rows.into_iter()
+                        .filter(|sm| sm.day == date)
+                        .map(|sm| (sm.minute, sm.avg))
+                        .collect()
+                })
             })
             .unwrap_or_default()
     }

@@ -6,6 +6,7 @@ import type {
   AttributedUsageResult,
   DashboardDataDto,
   DayDetailDto,
+  DayMetricsDto,
   DriverActionDto,
   ExportResultDto,
   HealthSnapshotDto,
@@ -14,6 +15,7 @@ import type {
   IconDto,
   NetAppsSnapshotDto,
   NetAppUsageDto,
+  NetSampleDto,
   NetworkSnapshotDto,
   PageDto,
   StatsDto,
@@ -162,6 +164,16 @@ class ApiService {
 
   async getHardwareSnapshot(): Promise<HardwareSnapshotDto> {
     return invoke<HardwareSnapshotDto>('get_hardware_snapshot');
+  }
+
+  /** 实时曲线窗口：最近 seconds 秒的秒级网络样本（缺省 5 分钟）。 */
+  async getNetworkLiveWindow(seconds?: number): Promise<NetSampleDto[]> {
+    return invoke<NetSampleDto[]>('get_network_live_window', { seconds: seconds ?? null });
+  }
+
+  /** 日历日仪表盘：某日历日的硬件/温度/网络分钟级序列。 */
+  async getDayMetrics(date: string): Promise<DayMetricsDto> {
+    return invoke<DayMetricsDto>('get_day_metrics', { date });
   }
 
   async getTemperatureSnapshot(): Promise<TemperatureSnapshotDto> {
