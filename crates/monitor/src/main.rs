@@ -109,7 +109,22 @@ fn main() {
     };
 
     // ── 主采集循环：每秒一帧；stop 事件触发时退出 ──
+    // 启动约 5 秒（各组件热身、SQLite 连接就绪）后收缩一次工作集：
+    // 无界面常驻进程没有用户交互，把空闲代码页/缓存页还给系统，
+    // 任务管理器里的占用（工作集）可明显下降（缺页时按需自动换回）。
+    let trim_at = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut trimmed = false;
     loop {
+        if !trimmed && std::time::Instant::now() >= trim_at {
+            unsafe {
+                let _ = windows_sys::Win32::System::Threading::SetProcessWorkingSetSize(
+                    windows_sys::Win32::System::Threading::GetCurrentProcess(),
+                    usize::MAX,
+                    usize::MAX,
+                );
+            }
+            trimmed = true;
+        }
         let hs = hw.snapshot();
         let ts = temp.snapshot();
         let ns = net.poll();

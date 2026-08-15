@@ -95,35 +95,39 @@ impl MetricStore {
     }
 
     /// 把内存桶写入数据库（一个事务），并清空。
+    /// 写完后 checkpoint 截断 WAL：WAL 是内存映射的，长期不截断会一直膨胀
+    /// （完整版 + 独立监控共写同一库，实测可涨到数 MB，抬升进程常驻内存）。
     pub fn flush(&mut self) -> rusqlite::Result<()> {
-        if self.buf.is_empty() {
-            return Ok(());
-        }
-        let tx = self.conn.transaction()?;
-        {
-            let mut stmt = tx.prepare(
-                "INSERT INTO metric_samples(day, minute, metric, avg, max, samples)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6)
-                 ON CONFLICT(day, minute, metric) DO UPDATE SET
-                    avg = (metric_samples.avg * metric_samples.samples
-                           + excluded.avg * excluded.samples)
-                          / (metric_samples.samples + excluded.samples),
-                    max = MAX(metric_samples.max, excluded.max),
-                    samples = metric_samples.samples + excluded.samples",
-            )?;
-            for (metric, acc) in &self.buf {
-                stmt.execute(params![
-                    self.day,
-                    self.minute,
-                    metric,
-                    acc.sum / acc.count as f64,
-                    acc.max,
-                    acc.count,
-                ])?;
+        if !self.buf.is_empty() {
+            let tx = self.conn.transaction()?;
+            {
+                let mut stmt = tx.prepare(
+                    "INSERT INTO metric_samples(day, minute, metric, avg, max, samples)
+                     VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+                     ON CONFLICT(day, minute, metric) DO UPDATE SET
+                        avg = (metric_samples.avg * metric_samples.samples
+                               + excluded.avg * excluded.samples)
+                              / (metric_samples.samples + excluded.samples),
+                        max = MAX(metric_samples.max, excluded.max),
+                        samples = metric_samples.samples + excluded.samples",
+                )?;
+                for (metric, acc) in &self.buf {
+                    stmt.execute(params![
+                        self.day,
+                        self.minute,
+                        metric,
+                        acc.sum / acc.count as f64,
+                        acc.max,
+                        acc.count,
+                    ])?;
+                }
             }
+            tx.commit()?;
+            self.buf.clear();
         }
-        tx.commit()?;
-        self.buf.clear();
+        // 即使无新数据也执行 checkpoint，把其它进程写入的 WAL 一并回收。
+        // PASSIVE 不阻塞：另一进程正在写时跳过本次，避免采样循环被卡住。
+        self.conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);")?;
         Ok(())
     }
 
