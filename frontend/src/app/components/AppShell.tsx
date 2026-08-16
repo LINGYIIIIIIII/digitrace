@@ -746,11 +746,11 @@ export default function AppShell({
             {...NO_DRAG_PROPS}
           >
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/12 text-primary">
-              <LayoutGrid className="h-4.5 w-4.5" />
+              <Activity className="h-4.5 w-4.5" />
             </span>
             <span
               className={clsx(
-                'flex min-w-0 items-baseline gap-1.5 transition-all duration-300',
+                'flex min-w-0 items-center gap-1.5 transition-all duration-300',
                 sidebarExpanded ? 'w-auto opacity-100' : 'w-0 opacity-0',
               )}
             >
@@ -758,7 +758,7 @@ export default function AppShell({
                 {BRAND.name}
               </span>
               {appVersion && (
-                <span className="shrink-0 text-[10px] font-normal text-muted-foreground">
+                <span className="mt-px shrink-0 rounded bg-muted/80 px-1 py-[1px] text-[9px] font-medium leading-none text-muted-foreground">
                   v{appVersion}
                 </span>
               )}
