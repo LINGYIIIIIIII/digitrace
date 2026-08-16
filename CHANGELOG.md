@@ -23,6 +23,9 @@
   常驻不再挡主程序启动）
 - **体验细节**：弹窗动画（缩放+上浮+淡入）、消除关闭弹窗后的焦点框、顶栏
   「比例」面板随主题、数字输入框隐藏原生箭头、界面缩放跨入口同步
+- **界面预览**：
+  ![仪表盘](https://raw.githubusercontent.com/LINGYIIIIIIII/digitrace/main/docs/screenshots/dashboard.png)
+  ![网络监控](https://raw.githubusercontent.com/LINGYIIIIIIII/digitrace/main/docs/screenshots/network.png)
 
 ## v2.26.0（2026-08-14）
 - 新增**独立监控进程** `digitrace-monitor.exe`（`crates/monitor`）：无界面常驻后台，
