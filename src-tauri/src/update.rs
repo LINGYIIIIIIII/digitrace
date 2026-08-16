@@ -28,12 +28,8 @@ pub const UPDATE_DIR: &str = "updates";
 const FIXED_UPDATE_NAME: &str = "数迹-update.exe";
 const LAST_CHECK_FILE: &str = "last_update_check.txt";
 const RESULT_FILE: &str = "update_result.txt";
-const PENDING_TAKEOVER_FILE: &str = "pending_takeover.json";
 /// 静默更新待安装标记：静默模式下载完成后写入，进程退出时消费（替换 exe）。
 const SILENT_PENDING_FILE: &str = "silent_pending.txt";
-/// 认领用的临时文件名：用 rename 原子地“认领”接管请求，
-/// 避免单实例回调和轮询线程同时处理导致重复弹窗。
-const PENDING_TAKEOVER_CLAIM: &str = "pending_takeover.claim";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateManifest {
@@ -87,15 +83,6 @@ pub struct UpdateActionDto {
     pub message: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PendingTakeover {
-    pub exe_path: String,
-    pub version: String,
-    /// 新版是否以管理员身份运行：旧版认领后需用 RunAs 拉起，避免权限丢失。
-    #[serde(default)]
-    pub elevated: bool,
-}
-
 fn data_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -104,100 +91,6 @@ fn data_dir() -> PathBuf {
 
 fn updates_dir() -> PathBuf {
     data_dir().join(UPDATE_DIR)
-}
-
-fn pending_takeover_path() -> PathBuf {
-    data_dir().join(PENDING_TAKEOVER_FILE)
-}
-
-/// 新版进程启动时写入「待切换」标记（检测到旧版正在运行）。
-/// 旧版收到单实例唤醒后读取并删除它，再在自己界面里询问用户。
-pub fn write_pending_takeover(exe_path: &str, elevated: bool) {
-    let p = PendingTakeover {
-        exe_path: exe_path.to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        elevated,
-    };
-    if let Ok(json) = serde_json::to_string(&p) {
-        let _ = std::fs::write(pending_takeover_path(), json);
-    }
-}
-
-/// 原子认领待切换标记（旧版单实例回调 / 轮询线程共用）。
-/// rename 成功的一方获得处理权，另一方返回 None。
-pub fn consume_pending_takeover() -> Option<PendingTakeover> {
-    let src = pending_takeover_path();
-    let dst = data_dir().join(PENDING_TAKEOVER_CLAIM);
-    if std::fs::rename(&src, &dst).is_err() {
-        return None;
-    }
-    let content = std::fs::read_to_string(&dst).ok();
-    let _ = std::fs::remove_file(&dst);
-    content.and_then(|c| serde_json::from_str(&c).ok())
-}
-
-/// 待切换标记是否仍然存在（新版进程轮询它判断旧版是否已接管）。
-pub fn pending_takeover_exists() -> bool {
-    pending_takeover_path().exists()
-}
-
-/// 启动时清理可能残留的待切换标记（上一次交接未完成时）。
-pub fn clear_stale_pending_takeover() {
-    let _ = std::fs::remove_file(pending_takeover_path());
-}
-
-/// 「显示窗口」请求标记：双击启动时检测到同路径实例已在运行（常见于提权实例——
-/// 单实例回调会被 Windows 完整性级别隔离拦截，双击看起来"没反应"），写入该请求，
-/// 由运行中实例的轮询器消费并唤出主窗口。走文件系统，跨提权边界可用。
-const SHOW_REQUEST_FILE: &str = "show_request.json";
-/// 显示请求的新鲜度窗口（秒）：只处理该时限内的请求，防止陈旧标记误触发。
-const SHOW_REQUEST_TTL_SECS: u64 = 15;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ShowRequest {
-    pub exe_path: String,
-    /// 写入时间戳（Unix 秒），用于陈旧性判断。
-    pub written_at: u64,
-}
-
-fn show_request_path() -> PathBuf {
-    data_dir().join(SHOW_REQUEST_FILE)
-}
-
-/// 写入「显示窗口」请求（检测到同路径实例在跑、且非自启 `--tray` 时调用）。
-pub fn write_show_request(exe_path: &str) {
-    let req = ShowRequest {
-        exe_path: exe_path.to_string(),
-        written_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
-    };
-    if let Ok(json) = serde_json::to_string(&req) {
-        let _ = std::fs::write(show_request_path(), json);
-    }
-}
-
-/// 消费「显示窗口」请求：只处理新鲜窗口（≤15s）内的请求，陈旧标记直接清除。
-pub fn take_show_request() -> Option<ShowRequest> {
-    let path = show_request_path();
-    let modified = std::fs::metadata(&path).ok()?.modified().ok()?;
-    let age = std::time::SystemTime::now()
-        .duration_since(modified)
-        .unwrap_or_default()
-        .as_secs();
-    if age > SHOW_REQUEST_TTL_SECS {
-        let _ = std::fs::remove_file(&path);
-        return None;
-    }
-    let content = std::fs::read_to_string(&path).ok()?;
-    let _ = std::fs::remove_file(&path);
-    serde_json::from_str(&content).ok()
-}
-
-/// 启动时清理残留的显示请求（自启 `--tray` 场景调用，保证开机静默）。
-pub fn clear_stale_show_request() {
-    let _ = std::fs::remove_file(show_request_path());
 }
 
 /// 前端点「立即切换」：启动新版 exe 后干净退出当前进程。
@@ -430,11 +323,11 @@ pub fn evaluate_update() -> UpdateCheckDto {
         message: None,
     };
     // GitHub 仓库模式优先（类似 THRM：直接读公开仓库 Release）。
-    let repo = config.update_github_repo.trim();
+    let repo = config.update.update_github_repo.trim();
     if !repo.is_empty() {
         return evaluate_github(repo, &mut dto);
     }
-    let url = config.update_manifest_url.trim();
+    let url = config.update.update_manifest_url.trim();
     if url.is_empty() {
         dto.message = Some("未配置更新源（设置 → 更新）".to_string());
         return dto;
@@ -521,11 +414,11 @@ pub async fn download_update(app: AppHandle) -> UpdateActionDto {
 fn download_blocking(app: &AppHandle) -> UpdateActionDto {
     let config = timetrace_core::AppConfig::load();
     // GitHub 仓库模式优先。
-    let repo = config.update_github_repo.trim().to_string();
+    let repo = config.update.update_github_repo.trim().to_string();
     if !repo.is_empty() {
         return download_github_blocking(app, &repo);
     }
-    let manifest_url = config.update_manifest_url.trim().to_string();
+    let manifest_url = config.update.update_manifest_url.trim().to_string();
     if manifest_url.is_empty() {
         return action(false, "未配置更新源（设置 → 更新）");
     }
@@ -743,16 +636,16 @@ pub fn start_background_check(app: AppHandle) {
         std::thread::sleep(Duration::from_secs(6));
         loop {
             let config = timetrace_core::AppConfig::load();
-            let has_source = !config.update_manifest_url.trim().is_empty()
-                || !config.update_github_repo.trim().is_empty();
-            if config.update_check_enabled && has_source {
+            let has_source = !config.update.update_manifest_url.trim().is_empty()
+                || !config.update.update_github_repo.trim().is_empty();
+            if config.update.update_check_enabled && has_source {
                 let today = chrono::Local::now().format("%Y-%m-%d").to_string();
                 let last =
                     std::fs::read_to_string(data_dir().join(LAST_CHECK_FILE)).unwrap_or_default();
                 if last.trim() != today {
                     let dto = evaluate_update();
                     if dto.has_update {
-                        if config.update_silent {
+                        if config.update.update_silent {
                             // 静默模式：直接后台下载，不弹任何提示。
                             let _ = silent_download_and_mark(&app);
                         } else {
@@ -764,7 +657,7 @@ pub fn start_background_check(app: AppHandle) {
             }
             // 下一次检查间隔：固定时刻 → 睡到当天该小时（已过则明天）；
             // 否则每 6 小时轮询。
-            let wait = if let Some(hour) = config.update_check_hour.filter(|h| *h <= 23) {
+            let wait = if let Some(hour) = config.update.update_check_hour.filter(|h| *h <= 23) {
                 sleep_until_hour(hour)
             } else {
                 Duration::from_secs(6 * 3600)

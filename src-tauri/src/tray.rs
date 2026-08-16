@@ -192,7 +192,7 @@ pub fn create_tray_icon(
         .menu(menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
-            "show" => crate::show_main_window(app),
+            "show" => crate::lifecycle::show_main_window(app),
             "quit" => {
                 crate::health::cleanup_toast_icon();
                 // 先销毁主窗口让 WebView2 干净收尾，避免子进程残留占用内存。
@@ -220,7 +220,7 @@ pub fn create_tray_icon(
                 ..
             } = event
             {
-                crate::show_main_window(tray.app_handle());
+                crate::lifecycle::show_main_window(tray.app_handle());
             }
         })
         .build(app)?;

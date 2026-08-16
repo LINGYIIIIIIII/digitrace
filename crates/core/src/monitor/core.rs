@@ -58,6 +58,7 @@ impl MonitorCore {
         let started_at = Utc::now();
         let live_window_secs = Arc::new(AtomicU64::new(
             crate::AppConfig::load()
+                .live
                 .network_live_window_seconds
                 .clamp(60, 600),
         ));

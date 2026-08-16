@@ -8,6 +8,7 @@ pub mod contracts;
 pub mod engine;
 pub mod error;
 pub mod etw_net;
+pub mod mem;
 pub mod monitor;
 pub mod oplog;
 pub mod security;

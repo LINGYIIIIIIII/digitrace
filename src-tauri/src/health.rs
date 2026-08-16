@@ -157,8 +157,8 @@ impl HealthTracker {
     fn tick(&self, idle_detector: &Win32IdleDetector, app: &tauri::AppHandle) {
         let config = AppConfig::load();
         let idle_secs = idle_detector.idle_duration().as_secs();
-        let reminder_secs = config.health_reminder_minutes.clamp(1, 480) * 60;
-        let break_secs = config.health_break_minutes.clamp(1, 60) * 60;
+        let reminder_secs = config.health.health_reminder_minutes.clamp(1, 480) * 60;
+        let break_secs = config.health.health_break_minutes.clamp(1, 60) * 60;
 
         let mut state = match self.state.lock() {
             Ok(s) => s,
@@ -172,7 +172,7 @@ impl HealthTracker {
             persist(&state);
         }
 
-        if !config.health_reminder_enabled {
+        if !config.health.health_reminder_enabled {
             state.streak_seconds = 0;
             state.streak_started = None;
             persist(&state);
@@ -204,7 +204,7 @@ impl HealthTracker {
                 "数迹 · 健康提醒",
                 &format!(
                     "你已经连续使用电脑 {} 分钟了，起来活动一下、看看远处吧。",
-                    config.health_reminder_minutes.clamp(1, 480)
+                    config.health.health_reminder_minutes.clamp(1, 480)
                 ),
             );
             if let Ok(mut state) = self.state.lock() {
@@ -233,14 +233,14 @@ impl HealthTracker {
         let config = AppConfig::load();
         let idle_detector = Win32IdleDetector::new();
         let idle_secs = idle_detector.idle_duration().as_secs();
-        let reminder_minutes = config.health_reminder_minutes.clamp(1, 480);
+        let reminder_minutes = config.health.health_reminder_minutes.clamp(1, 480);
         let state = match self.state.lock() {
             Ok(s) => s,
             Err(_) => {
                 return HealthSnapshotDto {
-                    enabled: config.health_reminder_enabled,
+                    enabled: config.health.health_reminder_enabled,
                     reminder_minutes,
-                    break_minutes: config.health_break_minutes.clamp(1, 60),
+                    break_minutes: config.health.health_break_minutes.clamp(1, 60),
                     streak_seconds: 0,
                     idle_seconds: idle_secs,
                     reminders_today: 0,
@@ -259,9 +259,9 @@ impl HealthTracker {
             .saturating_sub(streak as i64)
             .max(0);
         HealthSnapshotDto {
-            enabled: config.health_reminder_enabled,
+            enabled: config.health.health_reminder_enabled,
             reminder_minutes,
-            break_minutes: config.health_break_minutes.clamp(1, 60),
+            break_minutes: config.health.health_break_minutes.clamp(1, 60),
             streak_seconds: streak,
             idle_seconds: idle_secs,
             reminders_today: state.reminders_today,

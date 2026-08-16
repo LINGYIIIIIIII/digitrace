@@ -116,13 +116,7 @@ fn main() {
     let mut trimmed = false;
     loop {
         if !trimmed && std::time::Instant::now() >= trim_at {
-            unsafe {
-                let _ = windows_sys::Win32::System::Threading::SetProcessWorkingSetSize(
-                    windows_sys::Win32::System::Threading::GetCurrentProcess(),
-                    usize::MAX,
-                    usize::MAX,
-                );
-            }
+            timetrace_core::mem::trim_working_set();
             trimmed = true;
         }
         let hs = hw.snapshot();
