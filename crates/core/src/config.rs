@@ -244,13 +244,22 @@ impl Default for AppConfig {
 
 impl AppConfig {
     /// Load config from the default path, or return defaults.
+    /// 文件整文件加密（`dgc1` 魔数）时先解密；旧明文文件直接解析（兼容升级前）。
     pub fn load() -> Self {
         let path = Self::config_path();
-        match std::fs::read_to_string(&path) {
-            Ok(contents) => {
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                let key = crate::security::master_key().ok();
+                let bytes = match &key {
+                    Some(k) => crate::security::file_decrypt(k, &bytes).unwrap_or(bytes),
+                    None => bytes,
+                };
+                let text = String::from_utf8_lossy(&bytes).into_owned();
                 // 一次性清理历史 DeepSeek 字段（不留痕迹）。
-                Self::purge_deepseek_fields(&path, &contents);
-                serde_json::from_str(&contents).unwrap_or_else(|e| {
+                if let Some(cleaned) = Self::purge_deepseek_fields(&text) {
+                    let _ = Self::write_encrypted(&path, cleaned.as_bytes());
+                }
+                serde_json::from_str(&text).unwrap_or_else(|e| {
                     warn!("Failed to parse config, using defaults: {e}");
                     Self::default()
                 })
@@ -264,14 +273,11 @@ impl AppConfig {
         }
     }
 
-    /// 从配置文件里移除所有 `deepseek_*` 旧字段（幂等，不留痕迹）。
-    fn purge_deepseek_fields(path: &std::path::Path, contents: &str) {
-        let Ok(mut v) = serde_json::from_str::<serde_json::Value>(contents) else {
-            return;
-        };
-        let Some(obj) = v.as_object_mut() else {
-            return;
-        };
+    /// 从配置文本里移除所有 `deepseek_*` 旧字段（幂等，不留痕迹）。
+    /// 返回清理后的文本；无变化返回 None。
+    fn purge_deepseek_fields(contents: &str) -> Option<String> {
+        let mut v: serde_json::Value = serde_json::from_str(contents).ok()?;
+        let obj = v.as_object_mut()?;
         let mut changed = false;
         obj.retain(|k, _| {
             if k.starts_with("deepseek_") {
@@ -281,19 +287,32 @@ impl AppConfig {
                 true
             }
         });
-        if changed && let Ok(s) = serde_json::to_string(&v) {
-            let _ = std::fs::write(path, s);
-        }
+        changed.then(|| serde_json::to_string(&v).unwrap_or_else(|_| contents.to_string()))
     }
 
-    /// Save config to the default path.
+    /// Save config to the default path（整文件 AES-256-GCM 加密；密钥不可用时回退明文）。
     pub fn save(&self) -> Result<(), std::io::Error> {
         let path = Self::config_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-        std::fs::write(path, json)
+        Self::write_encrypted(&path, json.as_bytes())
+    }
+
+    /// 带加密写盘：有主密钥则整文件加密（带 `dgc1` 魔数），否则明文写入。
+    fn write_encrypted(path: &std::path::Path, bytes: &[u8]) -> Result<(), std::io::Error> {
+        match crate::security::master_key() {
+            Ok(key) => {
+                let enc =
+                    crate::security::file_encrypt(&key, bytes).map_err(std::io::Error::other)?;
+                std::fs::write(path, enc)
+            }
+            Err(e) => {
+                warn!("主密钥不可用，配置回退明文保存：{e}");
+                std::fs::write(path, bytes)
+            }
+        }
     }
 
     fn config_path() -> PathBuf {

@@ -410,7 +410,11 @@
       "export": "导出明文",
       "exported": "明文备份已导出",
       "exportFailed": "导出失败",
-      "openFolder": "打开位置"
+      "openFolder": "打开位置",
+      "csvExportTitle": "导出使用数据 CSV",
+      "csvExportDescription": "导出全部应用的使用数据（应用名 / 日期 / 活跃秒 / 空闲秒）为 CSV 文件，不含日记与窗口标题。",
+      "csvExport": "导出 CSV",
+      "csvExported": "使用数据 CSV 已导出"
     },
     "update": {
       "autoCheck": "自动检查更新",

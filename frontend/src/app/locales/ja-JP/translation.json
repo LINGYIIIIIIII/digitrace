@@ -410,7 +410,11 @@
       "export": "平文をエクスポート",
       "exported": "平文バックアップを書き出しました",
       "exportFailed": "エクスポートに失敗しました",
-      "openFolder": "フォルダーを開く"
+      "openFolder": "フォルダーを開く",
+      "csvExportTitle": "使用データを CSV エクスポート",
+      "csvExportDescription": "全アプリの使用データ（アプリ名 / 日付 / アクティブ秒 / アイドル秒）を CSV ファイルとして書き出します。日記とウィンドウタイトルは含まれません。",
+      "csvExport": "CSV をエクスポート",
+      "csvExported": "使用データ CSV を書き出しました"
     },
     "update": {
       "autoCheck": "更新を自動チェック",

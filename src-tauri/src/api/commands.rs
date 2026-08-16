@@ -256,6 +256,12 @@ pub fn export_plaintext(state: State<'_, AppState>) -> ExportResultDto {
     lock(&state).export_plaintext()
 }
 
+/// 导出使用数据 CSV（应用名/日期/活跃秒/空闲秒，全量）到 export 目录。
+#[tauri::command]
+pub fn export_usage_csv(state: State<'_, AppState>) -> ExportResultDto {
+    lock(&state).export_usage_csv()
+}
+
 /// 在资源管理器中定位某个文件（导出/日志等）。
 #[tauri::command]
 pub fn reveal_in_explorer(path: String) -> Result<(), String> {

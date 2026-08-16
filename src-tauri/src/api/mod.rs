@@ -28,23 +28,19 @@ use timetrace_core::{
     Win32WindowResolver,
 };
 /// Set up file logging at %APPDATA%/TimeTrace/timetrace.log
+/// 日志内容（含窗口标题等敏感信息）用主密钥 AES-256-GCM 加密落盘。
 fn setup_logging() {
     let dir = dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("TimeTrace");
     let _ = std::fs::create_dir_all(&dir);
     let log_path = dir.join("timetrace.log");
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path);
-    if let Ok(file) = file {
-        let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
-            .with_writer(file)
-            .with_ansi(false)
-            .try_init();
-    }
+    let writer = std::sync::Mutex::new(timetrace_core::oplog::EncryptedLogWriter::new(log_path));
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_writer(writer)
+        .with_ansi(false)
+        .try_init();
 }
 
 // ── Main API ──

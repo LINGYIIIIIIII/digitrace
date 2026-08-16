@@ -146,6 +146,10 @@ class ApiService {
     return invoke<ExportResultDto>('export_plaintext');
   }
 
+  async exportUsageCsv(): Promise<ExportResultDto> {
+    return invoke<ExportResultDto>('export_usage_csv');
+  }
+
   async revealInExplorer(path: string): Promise<void> {
     return invoke('reveal_in_explorer', { path });
   }

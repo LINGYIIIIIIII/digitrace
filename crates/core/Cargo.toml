@@ -16,3 +16,6 @@ tracing.workspace = true
 thiserror.workspace = true
 dirs.workspace = true
 winreg.workspace = true
+aes-gcm.workspace = true
+rand.workspace = true
+

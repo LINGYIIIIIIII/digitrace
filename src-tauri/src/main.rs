@@ -185,6 +185,7 @@ fn main() {
             update::install_update,
             update::switch_to_pending,
             api::export_plaintext,
+            api::export_usage_csv,
             api::reveal_in_explorer,
             api::open_external_url,
             api::get_network_history,

@@ -410,7 +410,11 @@
       "export": "Export plaintext",
       "exported": "Plaintext backup exported",
       "exportFailed": "Export failed",
-      "openFolder": "Open folder"
+      "openFolder": "Open folder",
+      "csvExportTitle": "Export usage data CSV",
+      "csvExportDescription": "Exports all apps' usage data (app / date / active seconds / idle seconds) as a CSV file. Diary entries and window titles are not included.",
+      "csvExport": "Export CSV",
+      "csvExported": "Usage data CSV exported"
     },
     "update": {
       "autoCheck": "Check for updates automatically",

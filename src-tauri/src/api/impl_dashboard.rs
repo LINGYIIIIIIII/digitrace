@@ -220,4 +220,35 @@ impl TimeTraceApi {
             },
         }
     }
+
+    /// 导出使用数据 CSV（应用名/日期/活跃秒/空闲秒，全量）到 export 目录。
+    /// 不含日记与窗口标题（那些走明文导出），CSV 本身不落盘敏感字段。
+    pub fn export_usage_csv(&self) -> ExportResultDto {
+        let dir = dirs::config_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("TimeTrace")
+            .join("export");
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            return ExportResultDto {
+                ok: false,
+                path: None,
+                message: Some(format!("无法创建导出目录：{e}")),
+            };
+        }
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let path = dir.join(format!("数迹使用数据-{stamp}.csv"));
+        let csv = self.export_csv("1970-01-01".to_string(), "2100-01-01".to_string());
+        match std::fs::write(&path, csv) {
+            Ok(_) => ExportResultDto {
+                ok: true,
+                path: Some(path.to_string_lossy().to_string()),
+                message: None,
+            },
+            Err(e) => ExportResultDto {
+                ok: false,
+                path: None,
+                message: Some(format!("写入导出文件失败：{e}")),
+            },
+        }
+    }
 }

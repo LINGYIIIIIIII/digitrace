@@ -143,7 +143,7 @@ impl SqliteStore {
 // ── 敏感字段加解密辅助（DPAPI，见 security.rs）──
 
 fn enc_str(s: &str) -> String {
-    security::encrypt(s).unwrap_or_else(|e| {
+    security::field_encrypt(s).unwrap_or_else(|e| {
         warn!("敏感字段加密失败，回退明文存储：{e}");
         s.to_string()
     })
@@ -154,7 +154,7 @@ fn enc_opt(s: Option<&str>) -> Option<String> {
 }
 
 fn dec_str(s: String) -> String {
-    security::decrypt_or_placeholder(s)
+    security::field_decrypt_or_placeholder(s)
 }
 
 /// 把数据库里残留的旧明文敏感字段一次性加密。幂等：只处理无 `dpapi:` 前缀的行。
@@ -175,7 +175,7 @@ fn encrypt_legacy_sensitive_fields(conn: &Connection) -> Result<(), rusqlite::Er
             .collect();
         drop(stmt);
         for (id, plain) in rows {
-            if let Ok(enc) = security::encrypt(&plain) {
+            if let Ok(enc) = security::field_encrypt(&plain) {
                 let update_sql = format!("UPDATE {table} SET {col} = ?1 WHERE id = ?2");
                 if conn.execute(&update_sql, params![enc, id]).is_ok() {
                     updated += 1;
