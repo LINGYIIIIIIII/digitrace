@@ -106,6 +106,14 @@ fn main() {
                 ui_ready: std::sync::atomic::AtomicBool::new(false),
             });
 
+            // 先创建主托盘图标。健康提醒和启动更新结果都复用这个图标
+            // 显示气泡，避免通知期间注册第二个临时托盘图标。
+            let (tray_menu, mut tray_state) = crate::tray::build_menu_and_state(app.handle())?;
+            let tray_icon = crate::tray::create_tray_icon(app, &tray_menu)?;
+            tray_state.tray_id = tray_icon.id().clone();
+            app.manage(tray_state);
+            crate::tray::spawn_updater(app.handle().clone());
+
             // 连续游戏提醒后台线程（读取 AppState 里的数据库句柄）。
             let game_tracker = games::GameTracker::start(app.handle().clone());
             app.manage(game_tracker);
@@ -138,13 +146,6 @@ fn main() {
                 // 恢复上次的大小 / 位置 / 最大化状态。
                 window_state::apply(&window);
             }
-
-            // 托盘：可配置实时数据行 + 操作项 + 末尾版本号（见 tray.rs）。
-            let (tray_menu, mut tray_state) = crate::tray::build_menu_and_state(app.handle())?;
-            let tray_icon = crate::tray::create_tray_icon(app, &tray_menu)?;
-            tray_state.tray_id = tray_icon.id().clone();
-            app.manage(tray_state);
-            crate::tray::spawn_updater(app.handle().clone());
 
             // 常驻任务：共享内存指标发布 + 工作集收缩（见 lifecycle.rs）。
             lifecycle::start_metrics_publisher(app.handle().clone());

@@ -7,23 +7,16 @@
 //! - 通知用托盘气泡（Shell_NotifyIcon）实现，属于 Windows 自带通知机制，
 //!   无需管理员权限、无需打包身份（AppUserModelID）。
 
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use timetrace_core::{AppConfig, IdleDetector, Win32IdleDetector};
 
 const TICK_SECONDS: u64 = 5;
-const BALLOON_ALIVE_SECONDS: u64 = 15;
 /// 连续时长恢复窗口：距上次保存 ≤90 秒（覆盖更新确认+重启）就接着计时，否则重新计时。
 const RESUME_WINDOW_SECS: u64 = 90;
 const STATE_FILE: &str = "health_state.json";
-
-/// 通知气泡图标使用独立自增 uID：避免多次通知互相覆盖、残留清理困难。
-static TOAST_UID: AtomicU32 = AtomicU32::new(1);
-/// 最近一次通知使用的 uID（应用退出前清理用）。
-static LAST_UID: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct HealthSnapshotDto {
@@ -294,58 +287,58 @@ pub fn test_health_notification(app: tauri::AppHandle) -> Result<(), String> {
 
 // ── Windows 托盘气泡通知 ────────────────────────────────────────
 
-struct ToastWindow {
-    hwnd: windows_sys::Win32::Foundation::HWND,
-}
+/// 定位 Tauri 主托盘图标的原生窗口和 Shell ID。
+///
+/// tray-icon 将原生 ID 保持为私有字段，但 Windows 后端使用进程内的
+/// `tray_icon_app` 窗口类。找到当前进程的窗口后，逐个探测已注册 ID，
+/// 便可用 `NIM_MODIFY` 更新已有图标，而不再调用 `NIM_ADD` 创建第二个图标。
+fn main_tray_target() -> Option<(windows_sys::Win32::Foundation::HWND, u32)> {
+    use windows_sys::Win32::Foundation::{GetLastError, S_OK};
+    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+    use windows_sys::Win32::UI::Shell::{Shell_NotifyIconGetRect, NOTIFYICONIDENTIFIER};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowExW, GetWindowThreadProcessId};
 
-// HWND 只是指针；通知宿主窗口在进程生命周期内常驻（OnceLock），
-// 跨线程仅用于 Shell_NotifyIcon，指针有效性有保障。
-unsafe impl Send for ToastWindow {}
-unsafe impl Sync for ToastWindow {}
-
-static TOAST_WINDOW: OnceLock<ToastWindow> = OnceLock::new();
-
-fn ensure_toast_window() -> Option<&'static ToastWindow> {
-    Some(TOAST_WINDOW.get_or_init(|| {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, HWND_MESSAGE};
-        // 消息窗口：不占任务栏、不显示；仅作为 Shell_NotifyIcon 的宿主。
-        let mut hwnd = unsafe {
-            CreateWindowExW(
-                0,
-                windows_sys::core::w!("STATIC"),
-                windows_sys::core::w!("数迹通知宿主"),
-                0,
-                0,
-                0,
-                0,
-                0,
-                HWND_MESSAGE,
+    let current_process = unsafe { GetCurrentProcessId() };
+    let mut after = std::ptr::null_mut();
+    let hwnd = loop {
+        let candidate = unsafe {
+            FindWindowExW(
                 std::ptr::null_mut(),
-                std::ptr::null_mut(),
+                after,
+                windows_sys::core::w!("tray_icon_app"),
                 std::ptr::null(),
             )
         };
-        if hwnd.is_null() {
-            // 个别系统拒绝消息窗口父级时退回普通隐藏窗口。
-            hwnd = unsafe {
-                CreateWindowExW(
-                    0,
-                    windows_sys::core::w!("STATIC"),
-                    windows_sys::core::w!("数迹通知宿主"),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    std::ptr::null(),
-                )
-            };
+        if candidate.is_null() {
+            timetrace_core::oplog::log_event(
+                "TOAST",
+                &format!("主托盘窗口未找到 err={}", unsafe { GetLastError() }),
+            );
+            return None;
         }
-        ToastWindow { hwnd }
-    }))
+        let mut process_id = 0;
+        unsafe { GetWindowThreadProcessId(candidate, &mut process_id) };
+        if process_id == current_process {
+            break candidate;
+        }
+        after = candidate;
+    };
+
+    // tray-icon 当前从 1 开始递增；探测有限范围避免依赖该私有实现细节。
+    for uid in 1..=256 {
+        let identifier = NOTIFYICONIDENTIFIER {
+            cbSize: std::mem::size_of::<NOTIFYICONIDENTIFIER>() as u32,
+            hWnd: hwnd,
+            uID: uid,
+            guidItem: unsafe { std::mem::zeroed() },
+        };
+        let mut rect = unsafe { std::mem::zeroed() };
+        if unsafe { Shell_NotifyIconGetRect(&identifier, &mut rect) } == S_OK {
+            return Some((hwnd, uid));
+        }
+    }
+    timetrace_core::oplog::log_event("TOAST", "主托盘窗口没有已注册的 Shell 图标 ID");
+    None
 }
 
 fn copy_wchar(dst: &mut [u16], s: &str) {
@@ -355,25 +348,19 @@ fn copy_wchar(dst: &mut [u16], s: &str) {
     dst[n] = 0;
 }
 
-fn build_nid(
+fn build_info_nid(
     hwnd: windows_sys::Win32::Foundation::HWND,
     uid: u32,
     title: &str,
     body: &str,
 ) -> windows_sys::Win32::UI::Shell::NOTIFYICONDATAW {
-    use windows_sys::Win32::UI::Shell::{
-        NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NOTIFYICONDATAW, NOTIFYICONDATAW_0,
-    };
-    use windows_sys::Win32::UI::WindowsAndMessaging::{LoadIconW, IDI_APPLICATION, WM_APP};
+    use windows_sys::Win32::UI::Shell::{NIF_INFO, NIIF_INFO, NOTIFYICONDATAW, NOTIFYICONDATAW_0};
 
     let mut nid: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
     nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
     nid.hWnd = hwnd;
     nid.uID = uid;
-    nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_INFO;
-    nid.uCallbackMessage = WM_APP + 1;
-    nid.hIcon = unsafe { LoadIconW(std::ptr::null_mut(), IDI_APPLICATION) };
-    copy_wchar(&mut nid.szTip, title);
+    nid.uFlags = NIF_INFO;
     copy_wchar(&mut nid.szInfoTitle, title);
     copy_wchar(&mut nid.szInfo, body);
     nid.Anonymous = NOTIFYICONDATAW_0 { uTimeout: 10000 };
@@ -387,88 +374,32 @@ pub fn show_toast(_app: &tauri::AppHandle, title: &str, body: &str) -> bool {
     fallback_balloon(title, body)
 }
 
-/// Windows 托盘气泡：Shell_NotifyIcon 系统渲染的原生通知。
+/// Windows 托盘气泡：修改现有主托盘图标，避免增加第二个图标。
 fn fallback_balloon(title: &str, body: &str) -> bool {
     use windows_sys::Win32::Foundation::{GetLastError, TRUE};
-    use windows_sys::Win32::UI::Shell::{Shell_NotifyIconW, NIM_ADD, NIM_DELETE};
+    use windows_sys::Win32::UI::Shell::{Shell_NotifyIconW, NIM_MODIFY};
 
-    let Some(tw) = ensure_toast_window() else {
-        timetrace_core::oplog::log_event("TOAST", "通知宿主窗口创建失败");
+    let Some((hwnd, uid)) = main_tray_target() else {
         return false;
     };
-    let hwnd = tw.hwnd;
-    if hwnd.is_null() {
-        timetrace_core::oplog::log_event("TOAST", "通知宿主窗口句柄为空");
-        return false;
-    }
 
-    let uid = TOAST_UID.fetch_add(1, Ordering::Relaxed);
-    LAST_UID.store(uid, Ordering::Relaxed);
-
-    // 先清理可能残留的同 ID 图标（进程内防重复添加），再添加。
-    let mut delete_nid: windows_sys::Win32::UI::Shell::NOTIFYICONDATAW =
-        unsafe { std::mem::zeroed() };
-    delete_nid.cbSize =
-        std::mem::size_of::<windows_sys::Win32::UI::Shell::NOTIFYICONDATAW>() as u32;
-    delete_nid.hWnd = hwnd;
-    delete_nid.uID = uid;
-    unsafe {
-        let _ = Shell_NotifyIconW(NIM_DELETE, &delete_nid);
-    }
-
-    // 同步调用 NIM_ADD：立即拿到结果并记录日志，失败时如实返回（前端会提示发送失败）。
-    let nid = build_nid(hwnd, uid, title, body);
-    let ok = unsafe { Shell_NotifyIconW(NIM_ADD, &nid) } == TRUE;
+    // NIM_MODIFY targets the already registered Tauri tray icon. Windows owns
+    // the balloon timeout; no temporary icon needs to be removed afterwards.
+    let nid = build_info_nid(hwnd, uid, title, body);
+    let ok = unsafe { Shell_NotifyIconW(NIM_MODIFY, &nid) } == TRUE;
     let err = unsafe { GetLastError() };
     timetrace_core::oplog::log_event(
         "TOAST",
         &format!(
-            "气泡通知: NIM_ADD={} err={} hwnd={} title={}",
-            ok, err, hwnd as isize, title
+            "气泡通知: NIM_MODIFY={} err={} hwnd={} uid={} title={}",
+            ok, err, hwnd as isize, uid, title
         ),
     );
-    if !ok {
-        return false;
-    }
-
-    // 显示一段时间后移除图标（移除动作放后台线程，不阻塞调用方）。
-    let hwnd = hwnd as isize;
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_secs(BALLOON_ALIVE_SECONDS));
-        let hwnd = hwnd as windows_sys::Win32::Foundation::HWND;
-        let mut nid: windows_sys::Win32::UI::Shell::NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
-        nid.cbSize = std::mem::size_of::<windows_sys::Win32::UI::Shell::NOTIFYICONDATAW>() as u32;
-        nid.hWnd = hwnd;
-        nid.uID = uid;
-        unsafe {
-            let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
-        }
-    });
-    true
+    ok
 }
 
-/// 应用退出前清理通知气泡图标，避免托盘残留「幽灵图标」。
-pub fn cleanup_toast_icon() {
-    use windows_sys::Win32::UI::Shell::{Shell_NotifyIconW, NIM_DELETE};
-    let Some(tw) = TOAST_WINDOW.get() else {
-        return;
-    };
-    let hwnd = tw.hwnd;
-    if hwnd.is_null() {
-        return;
-    }
-    let uid = LAST_UID.load(Ordering::Relaxed);
-    if uid == 0 {
-        return;
-    }
-    let mut nid: windows_sys::Win32::UI::Shell::NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
-    nid.cbSize = std::mem::size_of::<windows_sys::Win32::UI::Shell::NOTIFYICONDATAW>() as u32;
-    nid.hWnd = hwnd;
-    nid.uID = uid;
-    unsafe {
-        let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
-    }
-}
+/// 保留退出钩子接口；通知现在复用主托盘，不需要删除独立图标。
+pub fn cleanup_toast_icon() {}
 
 #[cfg(test)]
 mod tests {

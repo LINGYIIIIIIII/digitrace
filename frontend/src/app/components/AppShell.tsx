@@ -735,18 +735,20 @@ export default function AppShell({
         className="glacier-sidebar flex shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-[1px_0_0_rgba(15,23,42,0.04)] transition-[width] duration-300 ease-out dark:shadow-[1px_0_0_rgba(255,255,255,0.04)]"
         style={{ width: sidebarWidth }}
       >
-        <div className="flex h-[76px] items-center pl-2" {...DRAG_PROPS}>
+        <div className="flex h-[76px] items-center" {...DRAG_PROPS}>
           <div
             aria-label={BRAND.name}
             role="link"
             tabIndex={0}
             onClick={handleOpenRepository}
             onKeyDown={handleLogoKeyDown}
-            className="group flex cursor-pointer items-center gap-1.5 outline-none"
+            className="group flex min-w-0 cursor-pointer items-center outline-none"
             {...NO_DRAG_PROPS}
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/12 text-primary">
-              <Activity className="h-4.5 w-4.5" />
+            <span className="flex h-8 w-16 shrink-0 items-center justify-center">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                <Activity className="h-4.5 w-4.5" />
+              </span>
             </span>
             <span
               className={clsx(
