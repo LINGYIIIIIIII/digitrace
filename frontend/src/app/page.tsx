@@ -22,6 +22,7 @@ const AppUsagePage = dynamic(() => import('./components/AppUsagePage'), { ssr: f
 const CalendarPage = dynamic(() => import('./components/CalendarPage'), { ssr: false, loading: pageLoading });
 const HardwarePage = dynamic(() => import('./components/HardwarePage'), { ssr: false, loading: pageLoading });
 const HealthPage = dynamic(() => import('./components/HealthPage'), { ssr: false, loading: pageLoading });
+const GamesPage = dynamic(() => import('./components/GamesPage'), { ssr: false, loading: pageLoading });
 const NetworkPage = dynamic(() => import('./components/NetworkPage'), { ssr: false, loading: pageLoading });
 const SettingsPage = dynamic(() => import('./components/SettingsPage'), { ssr: false, loading: pageLoading });
 const AboutPanel = dynamic(() => import('./components/AboutPanel'), { ssr: false, loading: pageLoading });
@@ -81,6 +82,7 @@ export default function Home() {
         calendarContent={<CalendarPage />}
         networkContent={<NetworkPage />}
         healthContent={<HealthPage />}
+        gamesContent={<GamesPage />}
         hardwareContent={<HardwarePage />}
         settingsContent={<SettingsPage />}
         aboutContent={<AboutPanel />}

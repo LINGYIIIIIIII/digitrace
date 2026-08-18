@@ -8,6 +8,7 @@ export type ActiveTab =
   | 'calendar'
   | 'network'
   | 'health'
+  | 'games'
   | 'hardware'
   | 'settings'
   | 'about';

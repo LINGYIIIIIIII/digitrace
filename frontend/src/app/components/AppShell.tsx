@@ -23,6 +23,7 @@ import {
   X,
   Info,
   HeartPulse,
+  Gamepad2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -42,6 +43,7 @@ const MAIN_TAB_ITEMS = [
   { id: 'calendar', titleKey: 'appShell.tabs.calendar', icon: CalendarDays },
   { id: 'network', titleKey: 'appShell.tabs.network', icon: ChartLine },
   { id: 'health', titleKey: 'appShell.tabs.health', icon: HeartPulse },
+  { id: 'games', titleKey: 'settings.tabs.games', icon: Gamepad2 },
   { id: 'hardware', titleKey: 'appShell.tabs.hardware', icon: Cpu },
   { id: 'settings', titleKey: 'appShell.tabs.settings', icon: Settings2 },
 ] as const;
@@ -98,6 +100,7 @@ interface AppShellProps {
   calendarContent: ReactNode;
   networkContent: ReactNode;
   healthContent: ReactNode;
+  gamesContent: ReactNode;
   hardwareContent: ReactNode;
   settingsContent: ReactNode;
   aboutContent: ReactNode;
@@ -537,6 +540,7 @@ export default function AppShell({
   calendarContent,
   networkContent,
   healthContent,
+  gamesContent,
   hardwareContent,
   settingsContent,
   aboutContent,
@@ -687,6 +691,7 @@ export default function AppShell({
     calendar: calendarContent,
     network: networkContent,
     health: healthContent,
+    games: gamesContent,
     hardware: hardwareContent,
     settings: settingsContent,
     about: aboutContent,
