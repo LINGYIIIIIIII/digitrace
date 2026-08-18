@@ -3,6 +3,7 @@
 // 对外导出面保持不变。
 
 export { StatsCard, AppUsageCard, HourlyCard, CalendarCard, HealthCard } from './cards-usage';
+export { GamesCard } from './cards-games';
 export { NetworkStatsCard, NetworkLiveCard } from './cards-network';
 export { HardwareGaugesCard, DiskTempCard } from './cards-hardware';
 export { DurationAggCard, NetAggCard, HwAggCard, TempAggCard } from './cards-aggregate';

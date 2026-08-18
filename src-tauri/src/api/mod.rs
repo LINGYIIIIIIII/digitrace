@@ -112,6 +112,13 @@ pub(crate) fn lock<'a>(state: &'a State<'a, AppState>) -> std::sync::MutexGuard<
     state.api.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+impl TimeTraceApi {
+    /// 数据库句柄（供同 crate 其它模块读取；调用方需自行持有 api 锁）。
+    pub(crate) fn db(&self) -> Arc<SqliteStore> {
+        self.db.clone()
+    }
+}
+
 pub(crate) fn parse_date(s: &str) -> chrono::NaiveDate {
     chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
         .unwrap_or_else(|_| chrono::Local::now().date_naive())

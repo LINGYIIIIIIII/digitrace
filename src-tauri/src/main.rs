@@ -2,6 +2,7 @@
 
 mod api;
 mod attributed;
+mod games;
 mod health;
 mod icons;
 mod lifecycle;
@@ -104,6 +105,10 @@ fn main() {
                 should_show: std::sync::atomic::AtomicBool::new(should_show),
             });
 
+            // 连续游戏提醒后台线程（读取 AppState 里的数据库句柄）。
+            let game_tracker = games::GameTracker::start(app.handle().clone());
+            app.manage(game_tracker);
+
             // 自动更新：后台每天最多检查一次；启动时提示上次更新的结果。
             update::start_background_check(app.handle().clone());
             // 清理可能残留的待切换标记（上一次交接未完成时）。
@@ -168,6 +173,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             api::get_dashboard_data,
             api::get_usage_split,
+            api::get_app_period_usage,
             api::get_window_titles,
             api::get_stats,
             api::get_app_icon,
@@ -212,6 +218,11 @@ fn main() {
             api::export_csv,
             api::restart_app,
             api::mark_ui_ready,
+            games::get_game_snapshot,
+            games::get_games_library,
+            games::refresh_game_library,
+            games::add_game_manual,
+            games::remove_game,
         ])
         .build(tauri::generate_context!())
         .expect("数迹应用构建失败")

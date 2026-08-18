@@ -58,6 +58,22 @@ pub struct AppMetaRecord {
     pub is_productive: Option<bool>,
 }
 
+/// 一行游戏库记录（game_entries 表）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct GameRow {
+    pub id: i64,
+    /// 游戏显示名（如「艾尔登法环」）。
+    pub title: String,
+    /// 游戏可执行文件路径（known 来源为 exe 文件名 stem，无目录）。
+    pub exe_path: String,
+    /// 规范化应用名（进程 stem），known 来源匹配用。
+    pub app_name: String,
+    /// 来源：steam / epic / wegame / mihoyo / known / manual。
+    pub source: String,
+    /// 平台应用 ID（Steam appid / Epic AppName）。
+    pub appid: Option<String>,
+}
+
 // ── DataStore Trait ──
 
 /// Persistent storage for all TimeTrace data.
@@ -140,6 +156,31 @@ pub trait DataStore: Send + Sync {
 
     fn get_app_meta(&self, exe_path: &str) -> Option<AppMetaRecord>;
     fn set_app_meta(&self, meta: &AppMetaRecord);
+
+    // ── Game Library ──
+
+    /// 全部游戏库条目（解密后）。
+    fn game_entries(&self) -> Vec<GameRow>;
+
+    /// 新增一条游戏库记录，返回自增 id。
+    fn insert_game_entry(
+        &self,
+        title: &str,
+        exe_path: &str,
+        app_name: &str,
+        source: &str,
+        appid: Option<&str>,
+    ) -> i64;
+
+    /// 删除一条游戏库记录（手动条目）。返回是否删除成功。
+    fn delete_game_entry(&self, id: i64) -> bool;
+
+    /// 用非手动来源的新列表整体替换游戏库（保留 manual 条目）。
+    /// 返回写入的条目数。
+    fn replace_non_manual_games(
+        &self,
+        entries: &[(String, String, String, String, Option<String>)],
+    ) -> usize;
 
     // ── Recording Stats ──
 

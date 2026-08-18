@@ -91,6 +91,7 @@
       "hardwareGauges": "ハードウェアゲージ",
       "diskTemp": "ディスク温度",
       "health": "健康リマインダー",
+      "games": "ゲーム時間",
       "durationAgg": "時間集約",
       "netAgg": "ネットワーク集約",
       "hwAgg": "ハードウェア集約",
@@ -108,6 +109,7 @@
       "hardwareGauges": "CPU / GPU / メモリゲージ",
       "diskTemp": "ディスク温度リスト",
       "health": "連続使用 / 次のリマインダー",
+      "games": "現在のゲーム / 今日のゲーム時間",
       "durationAgg": "統計 + 時間別曲線",
       "netAgg": "ネットワーク統計 + リアルタイム曲線",
       "hwAgg": "ハードウェアゲージ + ディスク温度",
@@ -132,6 +134,13 @@
       "active": "アクティブ時間",
       "sessions": "セッション数"
     },
+    "games": {
+      "nowPlaying": "プレイ中",
+      "noGame": "プレイ中ではない",
+      "today": "今日のゲーム時間",
+      "streak": "連続プレイ",
+      "nextReminder": "次のリマインダー"
+    },
     "empty": "使用データはまだありません。アプリを使用すると自動的に記録されます。",
     "loadFailed": "データの読み込みに失敗しました",
     "retry": "再試行"
@@ -146,7 +155,12 @@
       "pie": "アプリ別シェア",
       "hourly": "時間別使用"
     },
-    "noDetail": "このアプリの詳細はありません。"
+    "noDetail": "このアプリの詳細はありません。",
+    "period": {
+      "today": "今日",
+      "week": "今週",
+      "month": "今月"
+    }
   },
   "calendar": {
     "prevYear": "前年",
@@ -272,6 +286,7 @@
       "startup": "起動とトレイ",
       "hardware": "ハードウェア",
       "update": "更新",
+      "games": "ゲーム",
       "logs": "ログとデータ"
     },
     "titlebar": {
@@ -394,6 +409,33 @@
       "path": "ログファイルのパス",
       "dataLocation": "データ保存先",
       "dataLocationDescription": "使用時間・ネットワーク・設定データはここに保存されます（ローカルのみ、アップロードなし）"
+    },
+    "games": {
+      "reminder": "連続プレイのリマインダー",
+      "reminderDescription": "設定時間を超えてプレイし続けるとシステム通知でお知らせします（初期状態はオフ）。",
+      "reminderMinutes": "リマインダー間隔",
+      "reminderMinutesDescription": "この時間連続でプレイしたら通知します。",
+      "minutes": "{{minutes}} 分",
+      "library": "ゲームライブラリ",
+      "libraryDescription": "Steam / Epic / WeGame / miHoYo ランチャーのゲームを自動検出し、既知ゲームの内蔵リストで補完します。検出できないものは手動追加できます。",
+      "refresh": "再スキャン",
+      "refreshed": "スキャン完了、ゲームライブラリを更新しました",
+      "refreshFailed": "スキャンに失敗しました",
+      "load": "ゲームライブラリを読み込む",
+      "loadFailed": "ゲームライブラリの読み込みに失敗しました",
+      "empty": "まだゲームがありません。「再スキャン」で自動検出するか、手動で追加してください。",
+      "today": "今日",
+      "total": "累計",
+      "manualAdd": "ゲームを手動追加",
+      "manualAddDescription": "ゲーム名と実行ファイルのパスを入力します（eldenring.exe のようなファイル名のみでも可）。",
+      "manualTitlePlaceholder": "ゲーム名（例：Minecraft）",
+      "manualExePlaceholder": "exe パスまたはファイル名（例：C:\\Games\\Minecraft\\Minecraft.exe）",
+      "add": "追加",
+      "added": "追加しました",
+      "addFailed": "追加に失敗しました",
+      "removed": "削除しました",
+      "removeFailed": "削除に失敗しました",
+      "manualEmpty": "ゲーム名とパスは必須です"
     },
     "data": {
       "clearTitle": "すべてのデータを削除",

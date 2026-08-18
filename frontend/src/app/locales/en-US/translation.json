@@ -91,6 +91,7 @@
       "hardwareGauges": "Hardware gauges",
       "diskTemp": "Disk temperature",
       "health": "Health reminder",
+      "games": "Game time",
       "durationAgg": "Duration aggregate",
       "netAgg": "Network aggregate",
       "hwAgg": "Hardware aggregate",
@@ -108,6 +109,7 @@
       "hardwareGauges": "CPU / GPU / memory gauges",
       "diskTemp": "Disk temperature list",
       "health": "Streak / next reminder",
+      "games": "Current game / today's game time",
       "durationAgg": "Stats + hourly curve",
       "netAgg": "Network stats + live curve",
       "hwAgg": "Hardware gauges + disk temperature",
@@ -132,6 +134,13 @@
       "active": "Active time",
       "sessions": "Sessions"
     },
+    "games": {
+      "nowPlaying": "Now playing",
+      "noGame": "Not playing",
+      "today": "Game time today",
+      "streak": "Current streak",
+      "nextReminder": "Next reminder"
+    },
     "empty": "No usage data yet — it will be recorded automatically as you use apps.",
     "loadFailed": "Failed to load data",
     "retry": "Retry"
@@ -146,7 +155,12 @@
       "pie": "Share by app",
       "hourly": "Hourly usage"
     },
-    "noDetail": "No more details for this app."
+    "noDetail": "No more details for this app.",
+    "period": {
+      "today": "Today",
+      "week": "This week",
+      "month": "This month"
+    }
   },
   "calendar": {
     "prevYear": "Previous year",
@@ -272,6 +286,7 @@
                   "startup": "Startup & Tray",
                   "hardware": "Hardware",
                   "update": "Updates",
+                  "games": "Games",
       "logs": "Logs & Data"
     },
     "titlebar": {
@@ -394,6 +409,33 @@
       "path": "Log file path",
       "dataLocation": "Data storage location",
       "dataLocationDescription": "Usage, network and config data are stored here (local only, never uploaded)"
+    },
+    "games": {
+      "reminder": "Long-session game reminder",
+      "reminderDescription": "Shows a system notification when you keep playing past the set time (off by default).",
+      "reminderMinutes": "Reminder interval",
+      "reminderMinutesDescription": "Remind after playing continuously for this long.",
+      "minutes": "{{minutes}} min",
+      "library": "Game library",
+      "libraryDescription": "Auto-detects games from Steam / Epic / WeGame / miHoYo launchers, with a built-in list of known games as fallback; anything missed can be added manually.",
+      "refresh": "Rescan",
+      "refreshed": "Scan finished, game library updated",
+      "refreshFailed": "Scan failed",
+      "load": "Load game library",
+      "loadFailed": "Failed to load game library",
+      "empty": "No games yet. Click \"Rescan\" to auto-detect, or add one manually.",
+      "today": "Today",
+      "total": "Total",
+      "manualAdd": "Add game manually",
+      "manualAddDescription": "Enter the game name and executable path (a bare exe filename like eldenring.exe also works).",
+      "manualTitlePlaceholder": "Game name, e.g. Minecraft",
+      "manualExePlaceholder": "exe path or filename, e.g. C:\\Games\\Minecraft\\Minecraft.exe",
+      "add": "Add",
+      "added": "Added",
+      "addFailed": "Failed to add",
+      "removed": "Removed",
+      "removeFailed": "Failed to remove",
+      "manualEmpty": "Game name and path are required"
     },
     "data": {
       "clearTitle": "Clear all data",

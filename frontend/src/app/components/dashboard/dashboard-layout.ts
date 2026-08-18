@@ -19,6 +19,7 @@ export type CardId =
   | 'hardwareGauges'
   | 'diskTemp'
   | 'health'
+  | 'games'
   | 'durationAgg'
   | 'netAgg'
   | 'hwAgg'
@@ -55,6 +56,7 @@ export const ALL_CARD_IDS: CardId[] = [
   'hardwareGauges',
   'diskTemp',
   'health',
+  'games',
   'durationAgg',
   'netAgg',
   'hwAgg',
@@ -157,6 +159,7 @@ const DEFAULT_SIZES: Record<CardId, CardSize> = {
   hardwareGauges: '2x2',
   diskTemp: '1x1',
   health: '1x1',
+  games: '1x1',
   durationAgg: '3x2',
   netAgg: '3x2',
   hwAgg: '3x2',

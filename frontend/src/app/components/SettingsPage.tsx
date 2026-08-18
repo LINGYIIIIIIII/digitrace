@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   FileText,
   FolderOpen,
+  Gamepad2,
   Globe,
   CodeXml,
   Clock,
@@ -35,7 +36,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useLocale } from '../lib/i18n';
 import { apiService } from '../services/api';
 import { useAppStore } from '../store/app-store';
-import type { CpuTemperatureDto, ExportResultDto } from '../types';
+import type { CpuTemperatureDto, ExportResultDto, GameEntryDto, GameLibraryResultDto } from '../types';
 import { applyFontFamily, applyThemeMode, applyUiZoom, loadUiZoom } from '../lib/appearance';
 import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
@@ -49,7 +50,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-type SettingsCategory = 'general' | 'appearance' | 'startup' | 'hardware' | 'update' | 'logs';
+type SettingsCategory = 'general' | 'appearance' | 'startup' | 'hardware' | 'update' | 'games' | 'logs';
 
 const CATEGORIES: {
   id: SettingsCategory;
@@ -61,6 +62,7 @@ const CATEGORIES: {
   { id: 'startup', icon: Rocket, labelKey: 'settings.tabs.startup' },
   { id: 'hardware', icon: Thermometer, labelKey: 'settings.tabs.hardware' },
   { id: 'update', icon: RefreshCw, labelKey: 'settings.tabs.update' },
+  { id: 'games', icon: Gamepad2, labelKey: 'settings.tabs.games' },
   { id: 'logs', icon: Database, labelKey: 'settings.tabs.logs' },
 ];
 
@@ -142,6 +144,14 @@ const NETWORK_LIVE_WINDOW_OPTIONS = [
   { value: '600', label: '10 分钟' },
 ];
 
+/** 游戏时长人性化显示：秒/分钟/小时。 */
+function fmtGameHours(seconds: number): string {
+  if (seconds < 60) return `${seconds} 秒`;
+  const m = Math.round(seconds / 60);
+  if (m < 60) return `${m} 分钟`;
+  return `${(seconds / 3600).toFixed(1)} 小时`;
+}
+
 function SettingRow({
   icon,
   title,
@@ -152,8 +162,7 @@ function SettingRow({
   title: string;
   description: string;
   children: ReactNode;
-}) {
-  return (
+}) {  return (
     <div className="flex items-center justify-between gap-4 px-5 py-4">
       <div className="flex min-w-0 items-start gap-3">
         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary">
@@ -200,6 +209,10 @@ const [exporting, setExporting] = useState(false);
 const [exportResult, setExportResult] = useState<ExportResultDto | null>(null);
 const [csvExporting, setCsvExporting] = useState(false);
 const [csvExportResult, setCsvExportResult] = useState<ExportResultDto | null>(null);
+const [games, setGames] = useState<GameEntryDto[] | null>(null);
+const [gamesLoading, setGamesLoading] = useState(false);
+const [manualTitle, setManualTitle] = useState('');
+const [manualExe, setManualExe] = useState('');
 const [restartOpen, setRestartOpen] = useState(false);
 const [driverOpen, setDriverOpen] = useState(false);
 const [driverUninstallOpen, setDriverUninstallOpen] = useState(false);
@@ -435,6 +448,67 @@ const [driverStatus, setDriverStatus] = useState<CpuTemperatureDto | null>(null)
       setCsvExporting(false);
     }
   }, [t]);
+
+  const loadGames = useCallback(async () => {
+    setGamesLoading(true);
+    try {
+      const list = await apiService.getGamesLibrary();
+      setGames(list);
+    } catch {
+      toast.error(t('settings.games.loadFailed'));
+    } finally {
+      setGamesLoading(false);
+    }
+  }, [t]);
+
+  const handleRefreshGames = useCallback(async () => {
+    setGamesLoading(true);
+    try {
+      const res = await apiService.refreshGameLibrary();
+      if (res.ok) {
+        toast.success(res.message ?? t('settings.games.refreshed'));
+        const list = await apiService.getGamesLibrary();
+        setGames(list);
+      } else {
+        toast.error(res.message ?? t('settings.games.refreshFailed'));
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGamesLoading(false);
+    }
+  }, [t]);
+
+  const handleAddGameManual = useCallback(async () => {
+    const title = manualTitle.trim();
+    const exe = manualExe.trim();
+    if (!title || !exe) {
+      toast.error(t('settings.games.manualEmpty'));
+      return;
+    }
+    const res = await apiService.addGameManual(title, exe);
+    if (res.ok) {
+      toast.success(t('settings.games.added'));
+      setManualTitle('');
+      setManualExe('');
+      void loadGames();
+    } else {
+      toast.error(res.message ?? t('settings.games.addFailed'));
+    }
+  }, [manualTitle, manualExe, loadGames, t]);
+
+  const handleRemoveGame = useCallback(
+    async (id: number) => {
+      const res = await apiService.removeGame(id);
+      if (res.ok) {
+        toast.success(t('settings.games.removed'));
+        setGames((prev) => (prev ? prev.filter((g) => g.id !== id) : prev));
+      } else {
+        toast.error(res.message ?? t('settings.games.removeFailed'));
+      }
+    },
+    [t],
+  );
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -934,6 +1008,159 @@ const [driverStatus, setDriverStatus] = useState<CpuTemperatureDto | null>(null)
                     ? t('settings.update.statusAutoOn')
                     : t('settings.update.statusAutoOff')}
               </p>
+            </>
+          )}
+
+          {category === 'games' && (
+            <>
+              <Card padding="none" className="overflow-hidden">
+                <SettingRow
+                  icon={<Gamepad2 className="h-4 w-4" />}
+                  title={t('settings.games.reminder')}
+                  description={t('settings.games.reminderDescription')}
+                >
+                  <ToggleSwitch
+                    enabled={config?.games_reminder_enabled ?? false}
+                    onChange={(v) => void patchConfig({ games_reminder_enabled: v })}
+                  />
+                </SettingRow>
+                <div className="border-t border-border/60">
+                  <SettingRow
+                    icon={<Clock className="h-4 w-4" />}
+                    title={t('settings.games.reminderMinutes')}
+                    description={t('settings.games.reminderMinutesDescription')}
+                  >
+                    <div className="w-32">
+                      <Select
+                        value={String(config?.games_reminder_minutes ?? 120)}
+                        onChange={(v) => void patchConfig({ games_reminder_minutes: Number(v) })}
+                        options={[30, 45, 60, 90, 120, 180, 240].map((m) => ({
+                          value: String(m),
+                          label: t('settings.games.minutes', { minutes: m }),
+                        }))}
+                        size="sm"
+                      />
+                    </div>
+                  </SettingRow>
+                </div>
+              </Card>
+
+              <Card padding="none" className="overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4">
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary">
+                      <Gamepad2 className="h-4 w-4" />
+                    </span>
+                    <div>
+                      <div className="text-sm font-medium text-foreground">
+                        {t('settings.games.library')}
+                      </div>
+                      <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                        {t('settings.games.libraryDescription')}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    loading={gamesLoading}
+                    onClick={() => void handleRefreshGames()}
+                  >
+                    <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                    {t('settings.games.refresh')}
+                  </Button>
+                </div>
+                <div className="border-t border-border/60">
+                  {games === null ? (
+                    <div className="px-5 py-4">
+                      <Button variant="outline" size="sm" onClick={() => void loadGames()}>
+                        {t('settings.games.load')}
+                      </Button>
+                    </div>
+                  ) : games.length === 0 ? (
+                    <p className="px-5 py-4 text-xs text-muted-foreground">
+                      {t('settings.games.empty')}
+                    </p>
+                  ) : (
+                    <ul className="max-h-72 divide-y divide-border/60 overflow-y-auto">
+                      {games.map((g) => (
+                        <li key={g.id} className="flex items-center gap-2 px-5 py-2.5">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate text-sm font-medium text-foreground">
+                                {g.title}
+                              </span>
+                              <span className="shrink-0 rounded border border-border/60 bg-muted/40 px-1 py-px text-[10px] text-muted-foreground">
+                                {g.source}
+                              </span>
+                            </div>
+                            <div className="truncate font-mono text-[11px] text-muted-foreground">
+                              {g.exe_path}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right text-xs text-muted-foreground">
+                            <div>
+                              {t('settings.games.today')} {fmtGameHours(g.today_seconds)}
+                            </div>
+                            <div>
+                              {t('settings.games.total')} {fmtGameHours(g.total_seconds)}
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => void handleRemoveGame(g.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </Card>
+
+              <Card padding="none" className="overflow-hidden">
+                <div className="px-5 py-4">
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary">
+                      <Gamepad2 className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-foreground">
+                        {t('settings.games.manualAdd')}
+                      </div>
+                      <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                        {t('settings.games.manualAddDescription')}
+                      </p>
+                      <div className="mt-2 flex flex-col gap-2">
+                        <Input
+                          className="h-8 font-mono text-xs"
+                          placeholder={t('settings.games.manualTitlePlaceholder')}
+                          value={manualTitle}
+                          onChange={(e) => setManualTitle(e.target.value)}
+                        />
+                        <Input
+                          className="h-8 font-mono text-xs"
+                          placeholder={t('settings.games.manualExePlaceholder')}
+                          value={manualExe}
+                          onChange={(e) => setManualExe(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end border-t border-border/60 px-5 py-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleAddGameManual()}
+                  >
+                    {t('settings.games.add')}
+                  </Button>
+                </div>
+              </Card>
             </>
           )}
 

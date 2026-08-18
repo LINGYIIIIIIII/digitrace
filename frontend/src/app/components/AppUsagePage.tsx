@@ -19,7 +19,7 @@ import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { apiService } from '../services/api';
 import { useAppStore } from '../store/app-store';
-import type { AppUsageDto } from '../types';
+import type { AppPeriodUsageDto, AppUsageDto } from '../types';
 import { shiftDayStr, todayStr, weekdayOf } from '../lib/datetime';
 import { Card } from './ui/index';
 import AppIcon from './dashboard/AppIcon';
@@ -82,6 +82,7 @@ export default function AppUsagePage() {
   const [selected, setSelected] = useState<AppUsageDto | null>(null);
   const [windows, setWindows] = useState<{ title: string; seconds: number }[]>([]);
   const [appHourly, setAppHourly] = useState<number[]>([]);
+  const [periodUsage, setPeriodUsage] = useState<AppPeriodUsageDto | null>(null);
   const [loading, setLoading] = useState(true);
 
   const { start, end, focus } = useMemo(() => rangeFor(range, config), [range, config]);
@@ -95,6 +96,7 @@ export default function AppUsagePage() {
         setApps(list.filter((a) => a.active_seconds > 0).sort((a, b) => b.active_seconds - a.active_seconds));
         setHourly(hourData);
         setSelected(null);
+        setPeriodUsage(null);
         setLoading(false);
       })
       .catch(() => {
@@ -109,15 +111,18 @@ export default function AppUsagePage() {
     async (app: AppUsageDto) => {
       setSelected(app);
       try {
-        const [winList, hourData] = await Promise.all([
+        const [winList, hourData, periods] = await Promise.all([
           apiService.getWindowTitles(app.app_name, focus),
           apiService.getAppHourly(app.app_name, focus),
+          apiService.getAppPeriodUsage(app.app_name, focus),
         ]);
         setWindows(winList);
         setAppHourly(hourData);
+        setPeriodUsage(periods);
       } catch {
         setWindows([]);
         setAppHourly([]);
+        setPeriodUsage(null);
       }
     },
     [focus],
@@ -272,6 +277,20 @@ export default function AppUsagePage() {
                     </button>
                     {selected?.app_name === app.app_name && (
                       <div className="mx-3 mb-2 rounded-lg border border-border/60 bg-background/60 p-3">
+                        {periodUsage?.app_name === app.app_name && (
+                          <div className="mb-3 grid grid-cols-3 gap-2">
+                            {[
+                              ['usage.period.today', periodUsage.today_seconds],
+                              ['usage.period.week', periodUsage.week_seconds],
+                              ['usage.period.month', periodUsage.month_seconds],
+                            ].map(([label, seconds]) => (
+                              <div key={String(label)} className="min-w-0 rounded border border-border/60 px-2 py-1.5">
+                                <div className="truncate text-[11px] text-muted-foreground">{t(String(label))}</div>
+                                <div className="truncate text-xs font-semibold tabular-nums">{formatDuration(Number(seconds))}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {appHourly.length > 0 && (
                           <div className="h-28">
                             <ResponsiveContainer width="100%" height="100%">

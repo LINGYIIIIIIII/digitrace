@@ -2,6 +2,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   AppConfig,
+  AppPeriodUsageDto,
   AppUsageDto,
   AttributedUsageResult,
   DashboardDataDto,
@@ -9,6 +10,9 @@ import type {
   DayMetricsDto,
   DriverActionDto,
   ExportResultDto,
+  GameEntryDto,
+  GameLibraryResultDto,
+  GameSnapshotDto,
   HealthSnapshotDto,
   HistoryPointDto,
   HardwareSnapshotDto,
@@ -64,6 +68,10 @@ class ApiService {
 
   async getUsageSplit(start: string, end: string): Promise<AppUsageDto[]> {
     return invoke<AppUsageDto[]>('get_usage_split', { start, end });
+  }
+
+  async getAppPeriodUsage(appName: string, date: string): Promise<AppPeriodUsageDto> {
+    return invoke<AppPeriodUsageDto>('get_app_period_usage', { appName, date });
   }
 
   async getStats(start: string, end: string): Promise<StatsDto> {
@@ -148,6 +156,26 @@ class ApiService {
 
   async exportUsageCsv(): Promise<ExportResultDto> {
     return invoke<ExportResultDto>('export_usage_csv');
+  }
+
+  async getGameSnapshot(): Promise<GameSnapshotDto> {
+    return invoke<GameSnapshotDto>('get_game_snapshot');
+  }
+
+  async getGamesLibrary(): Promise<GameEntryDto[]> {
+    return invoke<GameEntryDto[]>('get_games_library');
+  }
+
+  async refreshGameLibrary(): Promise<GameLibraryResultDto> {
+    return invoke<GameLibraryResultDto>('refresh_game_library');
+  }
+
+  async addGameManual(title: string, exePath: string): Promise<GameLibraryResultDto> {
+    return invoke<GameLibraryResultDto>('add_game_manual', { title, exePath });
+  }
+
+  async removeGame(id: number): Promise<GameLibraryResultDto> {
+    return invoke<GameLibraryResultDto>('remove_game', { id });
   }
 
   async revealInExplorer(path: string): Promise<void> {

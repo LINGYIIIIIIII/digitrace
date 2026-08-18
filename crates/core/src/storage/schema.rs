@@ -64,6 +64,17 @@ pub const CREATE_TABLES: &[&str] = &[
         entry_id        INTEGER
     )",
     "CREATE INDEX IF NOT EXISTS idx_diary_images_date ON diary_images(date)",
+    // Game library (auto-discovered + manual entries).
+    // title / exe_path / app_name 均为敏感字段，写入前加密（见 sqlite.rs）。
+    "CREATE TABLE IF NOT EXISTS game_entries (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        title       TEXT    NOT NULL,
+        exe_path    TEXT    NOT NULL,
+        app_name    TEXT    NOT NULL DEFAULT '',
+        source      TEXT    NOT NULL DEFAULT 'manual',
+        appid       TEXT,
+        created_at  TEXT    NOT NULL
+    )",
 ];
 
 /// One-time migration for databases created before multi-entry diaries:

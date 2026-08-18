@@ -21,6 +21,8 @@ impl TimeTraceApi {
             health_reminder_enabled: config.health.health_reminder_enabled,
             health_reminder_minutes: config.health.health_reminder_minutes,
             health_break_minutes: config.health.health_break_minutes,
+            games_reminder_enabled: config.games.games_reminder_enabled,
+            games_reminder_minutes: config.games.games_reminder_minutes,
             update_check_enabled: config.update.update_check_enabled,
             update_manifest_url: config.update.update_manifest_url,
             update_github_repo: config.update.update_github_repo,
@@ -46,6 +48,8 @@ impl TimeTraceApi {
             .set_live_window(config.network_live_window_seconds);
         app_config.health.health_reminder_minutes = config.health_reminder_minutes.clamp(5, 1440);
         app_config.health.health_break_minutes = config.health_break_minutes.clamp(1, 1440);
+        app_config.games.games_reminder_minutes = config.games_reminder_minutes.clamp(15, 1440);
+        app_config.games.games_reminder_enabled = config.games_reminder_enabled;
         app_config.excluded_apps = config.excluded_apps;
         app_config.start_minimized = config.start_minimized;
         app_config.theme_mode = config.theme_mode;

@@ -25,6 +25,7 @@ import {
   CalendarCard,
   DiskTempCard,
   DurationAggCard,
+  GamesCard,
   HardwareGaugesCard,
   HealthCard,
   HourlyCard,
@@ -312,6 +313,8 @@ export default function DashboardPage() {
           return <DiskTempCard size={size} />;
         case 'health':
           return <HealthCard />;
+        case 'games':
+          return <GamesCard size={size} />;
         case 'durationAgg':
           return <DurationAggCard data={data} hourly={hourly} size={size} tickable={liveTickable} />;
         case 'netAgg':

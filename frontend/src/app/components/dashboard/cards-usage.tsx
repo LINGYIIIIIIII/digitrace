@@ -6,7 +6,7 @@ import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Too
 import { apiService } from '../../services/api';
 import { useAppStore } from '../../store/app-store';
 import { useShallow } from 'zustand/react/shallow';
-import type { AppUsageDto, DashboardDataDto, DayDetailDto, HealthSnapshotDto } from '../../types';
+import type { AppPeriodUsageDto, AppUsageDto, DashboardDataDto, DayDetailDto, HealthSnapshotDto } from '../../types';
 import AppIcon from './AppIcon';
 import ChartTooltip, { formatAxisSeconds } from './ChartTooltip';
 import { Card } from '../ui/index';
@@ -165,6 +165,7 @@ function AppUsageContent({
   const [selectedApp, setSelectedApp] = useState<AppUsageDto | null>(null);
   const [appWindows, setAppWindows] = useState<{ title: string; seconds: number }[]>([]);
   const [appHourly, setAppHourly] = useState<number[]>([]);
+  const [periodUsage, setPeriodUsage] = useState<AppPeriodUsageDto | null>(null);
 
   const limit = LIST_LIMIT[size];
   const chartCount = isNarrow(size) ? 6 : 10;
@@ -186,15 +187,18 @@ function AppUsageContent({
     async (app: AppUsageDto) => {
       setSelectedApp(app);
       try {
-        const [windows, hourlyData] = await Promise.all([
+        const [windows, hourlyData, periods] = await Promise.all([
           apiService.getWindowTitles(app.app_name, focus),
           apiService.getAppHourly(app.app_name, focus),
+          apiService.getAppPeriodUsage(app.app_name, focus),
         ]);
         setAppWindows(windows);
         setAppHourly(hourlyData);
+        setPeriodUsage(periods);
       } catch {
         setAppWindows([]);
         setAppHourly([]);
+        setPeriodUsage(null);
       }
     },
     [focus],
@@ -264,12 +268,29 @@ function AppUsageContent({
             <span className="truncate font-semibold">{selectedApp.app_name}</span>
             <button
               type="button"
-              onClick={() => setSelectedApp(null)}
+              onClick={() => {
+                setSelectedApp(null);
+                setPeriodUsage(null);
+              }}
               className="shrink-0 text-muted-foreground hover:text-foreground"
             >
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
+          {periodUsage?.app_name === selectedApp.app_name && (
+            <div className="mb-2 grid grid-cols-3 gap-1.5">
+              {[
+                ['usage.period.today', periodUsage.today_seconds],
+                ['usage.period.week', periodUsage.week_seconds],
+                ['usage.period.month', periodUsage.month_seconds],
+              ].map(([label, seconds]) => (
+                <div key={String(label)} className="min-w-0 rounded border border-border/60 px-1.5 py-1">
+                  <div className="truncate text-[10px] text-muted-foreground">{t(String(label))}</div>
+                  <div className="truncate text-[11px] font-semibold tabular-nums">{formatDuration(Number(seconds))}</div>
+                </div>
+              ))}
+            </div>
+          )}
           {!isNarrow(size) && appHourly.length > 0 && (
             <div className="h-20">
               <ResponsiveContainer width="100%" height="100%">

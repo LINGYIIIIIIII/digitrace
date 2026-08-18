@@ -19,6 +19,8 @@ export interface AppConfig {
   health_reminder_enabled: boolean;
   health_reminder_minutes: number;
   health_break_minutes: number;
+  games_reminder_enabled: boolean;
+  games_reminder_minutes: number;
   update_check_enabled: boolean;
   update_manifest_url: string;
   update_github_repo: string;
@@ -33,6 +35,13 @@ export interface AppUsageDto {
   active_seconds: number;
   idle_seconds: number;
   exe_path: string;
+}
+
+export interface AppPeriodUsageDto {
+  app_name: string;
+  today_seconds: number;
+  week_seconds: number;
+  month_seconds: number;
 }
 
 export interface PageDto {
@@ -193,6 +202,31 @@ export interface ExportResultDto {
   ok: boolean;
   path: string | null;
   message: string | null;
+}
+
+export interface GameEntryDto {
+  id: number;
+  title: string;
+  exe_path: string;
+  source: string;
+  today_seconds: number;
+  total_seconds: number;
+}
+
+export interface GameLibraryResultDto {
+  ok: boolean;
+  found: number;
+  message: string | null;
+}
+
+export interface GameSnapshotDto {
+  enabled: boolean;
+  reminder_minutes: number;
+  current_game: string | null;
+  streak_seconds: number;
+  today_seconds: number;
+  reminders_today: number;
+  next_reminder_seconds: number;
 }
 
 export interface HistoryPointDto {

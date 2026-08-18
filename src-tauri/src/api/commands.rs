@@ -18,6 +18,15 @@ pub fn get_usage_split(state: State<'_, AppState>, start: String, end: String) -
 }
 
 #[tauri::command]
+pub fn get_app_period_usage(
+    state: State<'_, AppState>,
+    app_name: String,
+    date: String,
+) -> AppPeriodUsageDto {
+    lock(&state).get_app_period_usage(app_name, date)
+}
+
+#[tauri::command]
 pub fn get_window_titles(
     state: State<'_, AppState>,
     app_name: String,

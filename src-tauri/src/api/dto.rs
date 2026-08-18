@@ -8,6 +8,15 @@ pub struct AppUsageDto {
     pub exe_path: String,
 }
 
+/// 单个应用按自然日范围聚合的活跃时长。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AppPeriodUsageDto {
+    pub app_name: String,
+    pub today_seconds: i64,
+    pub week_seconds: i64,
+    pub month_seconds: i64,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PageDto {
     pub title: String,
@@ -120,6 +129,10 @@ pub struct ConfigDto {
     pub health_reminder_minutes: u64,
     /// 健康提醒：离开电脑多少分钟算休息（连续计时归零）。
     pub health_break_minutes: u64,
+    /// 连续游戏提醒：是否启用。
+    pub games_reminder_enabled: bool,
+    /// 连续游戏提醒：连续玩多少分钟提醒一次。
+    pub games_reminder_minutes: u64,
     /// 自动更新：是否自动检查新版本。
     pub update_check_enabled: bool,
     /// 自动更新：更新清单地址（JSON）。为空表示未配置更新源。
@@ -264,4 +277,44 @@ pub struct ExportResultDto {
     pub ok: bool,
     pub path: Option<String>,
     pub message: Option<String>,
+}
+
+/// 游戏库条目（含今日/总时长）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GameEntryDto {
+    pub id: i64,
+    pub title: String,
+    pub exe_path: String,
+    /// 来源：steam / epic / wegame / mihoyo / known / manual。
+    pub source: String,
+    /// 今日活跃秒数。
+    pub today_seconds: i64,
+    /// 历史总活跃秒数。
+    pub total_seconds: i64,
+}
+
+/// 游戏库操作结果（刷新 / 添加 / 移除）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GameLibraryResultDto {
+    pub ok: bool,
+    /// 刷新后发现的游戏条目数。
+    pub found: usize,
+    pub message: Option<String>,
+}
+
+/// 连续游戏提醒快照。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GameSnapshotDto {
+    pub enabled: bool,
+    pub reminder_minutes: u64,
+    /// 当前正在玩的游戏名（None = 未在玩游戏）。
+    pub current_game: Option<String>,
+    /// 当前连续游戏秒数。
+    pub streak_seconds: u64,
+    /// 今日游戏总秒数。
+    pub today_seconds: i64,
+    /// 今日已提醒次数。
+    pub reminders_today: u32,
+    /// 距下次提醒秒数（负数视为 0）。
+    pub next_reminder_seconds: i64,
 }

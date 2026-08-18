@@ -50,6 +50,28 @@ impl Default for HealthConfig {
     }
 }
 
+/// 游戏配置（游戏识别 / 连续游戏提醒）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GameConfig {
+    /// 连续游戏提醒：是否启用。
+    #[serde(default)]
+    pub games_reminder_enabled: bool,
+
+    /// 连续游戏提醒：连续玩多少分钟提醒一次。
+    #[serde(default = "default_game_reminder_minutes")]
+    pub games_reminder_minutes: u64,
+}
+
+impl Default for GameConfig {
+    fn default() -> Self {
+        Self {
+            games_reminder_enabled: false,
+            games_reminder_minutes: default_game_reminder_minutes(),
+        }
+    }
+}
+
 /// 自动更新配置（更新源、静默模式、检查时刻）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -112,6 +134,10 @@ pub struct AppConfig {
     /// 健康提醒。磁盘键名保持扁平。
     #[serde(default, flatten)]
     pub health: HealthConfig,
+
+    /// 游戏识别 / 连续游戏提醒。磁盘键名保持扁平。
+    #[serde(default, flatten)]
+    pub games: GameConfig,
 
     /// 自动更新。磁盘键名保持扁平。
     #[serde(default, flatten)]
@@ -207,6 +233,9 @@ fn default_health_reminder_minutes() -> u64 {
 fn default_health_break_minutes() -> u64 {
     5
 }
+fn default_game_reminder_minutes() -> u64 {
+    120
+}
 fn default_tray_items() -> Vec<String> {
     vec![
         "cpu".to_string(),
@@ -225,6 +254,7 @@ impl Default for AppConfig {
             refresh_interval_seconds: 10,
             live: LiveConfig::default(),
             health: HealthConfig::default(),
+            games: GameConfig::default(),
             update: UpdateConfig::default(),
             minimize_to_tray: true,
             start_minimized: false,
@@ -341,6 +371,8 @@ mod tests {
             "health_reminder_enabled",
             "health_reminder_minutes",
             "health_break_minutes",
+            "games_reminder_enabled",
+            "games_reminder_minutes",
             "update_check_enabled",
             "update_manifest_url",
             "update_github_repo",
@@ -351,6 +383,7 @@ mod tests {
         // 不出现分组名
         assert!(!obj.contains_key("live"));
         assert!(!obj.contains_key("health"));
+        assert!(!obj.contains_key("games"));
         assert!(!obj.contains_key("update"));
     }
 
@@ -363,6 +396,8 @@ mod tests {
             "health_reminder_enabled": false,
             "health_reminder_minutes": 30,
             "health_break_minutes": 10,
+            "games_reminder_enabled": true,
+            "games_reminder_minutes": 180,
             "update_silent": true,
             "update_github_repo": "LINGYIIIIIIII/digitrace"
         }"#;
@@ -371,6 +406,8 @@ mod tests {
         assert_eq!(cfg.live.network_live_window_seconds, 120);
         assert!(!cfg.health.health_reminder_enabled);
         assert_eq!(cfg.health.health_reminder_minutes, 30);
+        assert!(cfg.games.games_reminder_enabled);
+        assert_eq!(cfg.games.games_reminder_minutes, 180);
         assert!(cfg.update.update_silent);
         assert_eq!(cfg.update.update_github_repo, "LINGYIIIIIIII/digitrace");
     }

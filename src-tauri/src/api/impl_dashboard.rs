@@ -1,6 +1,21 @@
 //! 自 api.rs 按域拆分（纯搬迁，行为不变）。
 use super::*;
 use timetrace_core::*;
+
+fn app_period_bounds(day: chrono::NaiveDate) -> (chrono::NaiveDate, chrono::NaiveDate) {
+    let week_start = day
+        - chrono::Duration::days(i64::from(
+            chrono::Datelike::weekday(&day).num_days_from_monday(),
+        ));
+    let month_start = chrono::NaiveDate::from_ymd_opt(
+        chrono::Datelike::year(&day),
+        chrono::Datelike::month(&day),
+        1,
+    )
+    .unwrap_or(day);
+    (week_start, month_start)
+}
+
 impl TimeTraceApi {
     /// One-call dashboard payload: usage split + overall stats.
     pub fn get_dashboard_data(&self, start: String, end: String) -> DashboardDataDto {
@@ -40,6 +55,28 @@ impl TimeTraceApi {
                 exe_path: x.exe_path,
             })
             .collect()
+    }
+
+    /// 单个应用的今日、本周、本月活跃时长（参考日期包含在范围内）。
+    pub fn get_app_period_usage(&self, app_name: String, date: String) -> AppPeriodUsageDto {
+        let day = parse_date(&date);
+        let (week_start, month_start) = app_period_bounds(day);
+        let active_for = |start: chrono::NaiveDate, end: chrono::NaiveDate| {
+            DataStore::get_usage_split(&*self.db, start, end)
+                .into_iter()
+                .find(|row| row.app_name == app_name)
+                .map(|row| row.active_seconds)
+                .unwrap_or(0)
+        };
+        let today_seconds = active_for(day, day);
+        let week_seconds = active_for(week_start, day);
+        let month_seconds = active_for(month_start, day);
+        AppPeriodUsageDto {
+            app_name,
+            today_seconds,
+            week_seconds,
+            month_seconds,
+        }
     }
 
     /// Page-level breakdown for an app on a date.
@@ -250,5 +287,19 @@ impl TimeTraceApi {
                 message: Some(format!("写入导出文件失败：{e}")),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::app_period_bounds;
+    use chrono::NaiveDate;
+
+    #[test]
+    fn app_period_bounds_use_monday_and_month_start() {
+        let day = NaiveDate::from_ymd_opt(2026, 8, 18).unwrap();
+        let (week, month) = app_period_bounds(day);
+        assert_eq!(week, NaiveDate::from_ymd_opt(2026, 8, 17).unwrap());
+        assert_eq!(month, NaiveDate::from_ymd_opt(2026, 8, 1).unwrap());
     }
 }

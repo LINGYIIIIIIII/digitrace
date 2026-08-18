@@ -8,6 +8,7 @@ pub mod contracts;
 pub mod engine;
 pub mod error;
 pub mod etw_net;
+pub mod games;
 pub mod mem;
 pub mod monitor;
 pub mod oplog;
@@ -20,7 +21,7 @@ pub use contracts::events::{AppInfo, EventSink, EventSource, EventSourceHandle, 
 pub use contracts::idle::IdleDetector;
 pub use contracts::startup::{DisableResult, StartupEntryRecord, StartupScanner};
 pub use contracts::storage::{
-    AppMetaRecord, AppUsageSplit, AppUsageSummary, DataStore, SessionRecord,
+    AppMetaRecord, AppUsageSplit, AppUsageSummary, DataStore, GameRow, SessionRecord,
 };
 pub use contracts::window::WindowResolver;
 pub use engine::{

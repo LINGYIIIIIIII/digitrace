@@ -11,7 +11,8 @@ use rusqlite::{Connection, params};
 use tracing::{debug, warn};
 
 use crate::contracts::{
-    AppMetaRecord, AppUsageSplit, AppUsageSummary, DataStore, SessionRecord, StartupEntryRecord,
+    AppMetaRecord, AppUsageSplit, AppUsageSummary, DataStore, GameRow, SessionRecord,
+    StartupEntryRecord,
 };
 use crate::security;
 use crate::storage::schema;
@@ -526,6 +527,106 @@ impl DataStore for SqliteStore {
         );
     }
 
+    // ── Game Library ──
+
+    fn game_entries(&self) -> Vec<GameRow> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT id, title, exe_path, app_name, source, appid FROM game_entries ORDER BY title COLLATE NOCASE, id",
+        ) && let Ok(rows) = stmt.query_map([], |row| {
+            Ok(GameRow {
+                id: row.get(0)?,
+                title: dec_str(row.get(1)?),
+                exe_path: dec_str(row.get(2)?),
+                app_name: dec_str(row.get(3)?),
+                source: row.get(4)?,
+                appid: row.get(5)?,
+            })
+        }) {
+            out.extend(rows.filter_map(|r| r.ok()));
+        }
+        out
+    }
+
+    fn insert_game_entry(
+        &self,
+        title: &str,
+        exe_path: &str,
+        app_name: &str,
+        source: &str,
+        appid: Option<&str>,
+    ) -> i64 {
+        let conn = self.lock();
+        match conn.execute(
+            "INSERT INTO game_entries (title, exe_path, app_name, source, appid, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                enc_str(title),
+                enc_str(exe_path),
+                enc_str(app_name),
+                source,
+                appid,
+                chrono::Local::now().to_rfc3339(),
+            ],
+        ) {
+            Ok(_) => conn.last_insert_rowid(),
+            Err(e) => {
+                warn!("Failed to insert game entry: {e}");
+                -1
+            }
+        }
+    }
+
+    fn delete_game_entry(&self, id: i64) -> bool {
+        let conn = self.lock();
+        conn.execute("DELETE FROM game_entries WHERE id = ?1", params![id])
+            .map(|n| n > 0)
+            .unwrap_or(false)
+    }
+
+    fn replace_non_manual_games(
+        &self,
+        entries: &[(String, String, String, String, Option<String>)],
+    ) -> usize {
+        let conn = self.lock();
+        let Ok(tx) = conn.unchecked_transaction() else {
+            warn!("replace_non_manual_games: 无法开启事务");
+            return 0;
+        };
+        if let Err(e) = tx.execute("DELETE FROM game_entries WHERE source != 'manual'", []) {
+            warn!("replace_non_manual_games: 清理旧游戏库失败：{e}");
+            return 0;
+        }
+        let mut written = 0usize;
+        for (title, exe_path, app_name, source, appid) in entries {
+            if tx
+                .execute(
+                    "INSERT INTO game_entries (title, exe_path, app_name, source, appid, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        enc_str(title),
+                        enc_str(exe_path),
+                        enc_str(app_name),
+                        source,
+                        appid,
+                        chrono::Local::now().to_rfc3339(),
+                    ],
+                )
+                .is_ok()
+            {
+                written += 1;
+            }
+        }
+        match tx.commit() {
+            Ok(_) => written,
+            Err(e) => {
+                warn!("replace_non_manual_games: 提交失败：{e}");
+                written
+            }
+        }
+    }
+
     // ── Recording Stats ──
 
     fn recording_started_at(&self) -> Option<DateTime<Utc>> {
@@ -1032,6 +1133,7 @@ pub struct MemoryStore {
     summaries: Mutex<Vec<(String, NaiveDate, i64, i64)>>, // app_name, date, seconds, count
     startups: Mutex<Vec<StartupEntryRecord>>,
     metas: Mutex<Vec<AppMetaRecord>>,
+    games: Mutex<Vec<GameRow>>,
     next_id: Mutex<i64>,
 }
 
@@ -1050,6 +1152,7 @@ impl Default for MemoryStore {
             summaries: Mutex::new(Vec::new()),
             startups: Mutex::new(Vec::new()),
             metas: Mutex::new(Vec::new()),
+            games: Mutex::new(Vec::new()),
             next_id: Mutex::new(1),
         }
     }
@@ -1204,6 +1307,64 @@ impl DataStore for MemoryStore {
         } else {
             metas.push(meta.clone());
         }
+    }
+
+    fn game_entries(&self) -> Vec<GameRow> {
+        self.games.lock().unwrap().clone()
+    }
+
+    fn insert_game_entry(
+        &self,
+        title: &str,
+        exe_path: &str,
+        app_name: &str,
+        source: &str,
+        appid: Option<&str>,
+    ) -> i64 {
+        let mut games = self.games.lock().unwrap();
+        let mut next_id = self.next_id.lock().unwrap();
+        let id = *next_id;
+        *next_id += 1;
+        games.push(GameRow {
+            id,
+            title: title.to_string(),
+            exe_path: exe_path.to_string(),
+            app_name: app_name.to_string(),
+            source: source.to_string(),
+            appid: appid.map(|s| s.to_string()),
+        });
+        id
+    }
+
+    fn delete_game_entry(&self, id: i64) -> bool {
+        let mut games = self.games.lock().unwrap();
+        let before = games.len();
+        games.retain(|g| g.id != id);
+        games.len() != before
+    }
+
+    fn replace_non_manual_games(
+        &self,
+        entries: &[(String, String, String, String, Option<String>)],
+    ) -> usize {
+        let mut games = self.games.lock().unwrap();
+        let mut next_id = self.next_id.lock().unwrap();
+        games.retain(|g| g.source == "manual");
+        let mut written = 0usize;
+        for (title, exe_path, app_name, source, appid) in entries {
+            let id = *next_id;
+            *next_id += 1;
+            games.push(GameRow {
+                id,
+                title: title.clone(),
+                exe_path: exe_path.clone(),
+                app_name: app_name.clone(),
+                source: source.clone(),
+                appid: appid.clone(),
+            });
+            written += 1;
+        }
+        written
     }
 
     fn recording_started_at(&self) -> Option<DateTime<Utc>> {

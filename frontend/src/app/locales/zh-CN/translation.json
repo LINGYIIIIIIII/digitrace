@@ -91,6 +91,7 @@
       "hardwareGauges": "硬件表盘",
       "diskTemp": "磁盘温度",
       "health": "健康提醒",
+      "games": "游戏时长",
       "durationAgg": "时长聚合",
       "netAgg": "网络聚合",
       "hwAgg": "硬件聚合",
@@ -108,6 +109,7 @@
       "hardwareGauges": "CPU / GPU / 内存表盘",
       "diskTemp": "磁盘温度列表",
       "health": "连续使用 / 下次提醒",
+      "games": "当前游戏 / 今日游戏时长",
       "durationAgg": "统计卡 + 小时分布",
       "netAgg": "网络统计 + 实时曲线",
       "hwAgg": "硬件表盘 + 磁盘温度",
@@ -132,6 +134,13 @@
       "active": "活跃时长",
       "sessions": "会话数"
     },
+    "games": {
+      "nowPlaying": "正在游玩",
+      "noGame": "未在玩游戏",
+      "today": "今日游戏时长",
+      "streak": "连续游玩",
+      "nextReminder": "下次提醒"
+    },
     "empty": "暂无使用数据 — 开始使用应用后将自动记录。",
     "loadFailed": "数据加载失败",
     "retry": "重试"
@@ -146,7 +155,12 @@
       "pie": "应用占比",
       "hourly": "全天小时分布"
     },
-    "noDetail": "该应用没有更多详情。"
+    "noDetail": "该应用没有更多详情。",
+    "period": {
+      "today": "今日",
+      "week": "本周",
+      "month": "本月"
+    }
   },
   "calendar": {
     "prevYear": "上一年",
@@ -272,6 +286,7 @@
                   "startup": "启动与托盘",
                   "hardware": "硬件",
                   "update": "更新",
+                  "games": "游戏",
       "logs": "日志与数据"
     },
     "titlebar": {
@@ -394,6 +409,33 @@
       "path": "运行日志文件路径",
       "dataLocation": "数据存储位置",
       "dataLocationDescription": "使用时长、网络与配置数据均保存在此目录（仅本机，不上传）"
+    },
+    "games": {
+      "reminder": "连续游戏提醒",
+      "reminderDescription": "连续游玩达到设定时长后弹系统通知，提醒休息（默认关闭）。",
+      "reminderMinutes": "提醒间隔",
+      "reminderMinutesDescription": "连续玩多久提醒一次。",
+      "minutes": "{{minutes}} 分钟",
+      "library": "游戏库",
+      "libraryDescription": "自动识别 Steam / Epic / WeGame / 米哈游启动器的游戏，内置知名游戏名单兜底；未识别到的可手动添加。",
+      "refresh": "重新扫描",
+      "refreshed": "扫描完成，游戏库已更新",
+      "refreshFailed": "扫描失败",
+      "load": "加载游戏库",
+      "loadFailed": "游戏库加载失败",
+      "empty": "暂无游戏。点「重新扫描」自动识别，或手动添加。",
+      "today": "今日",
+      "total": "累计",
+      "manualAdd": "手动添加游戏",
+      "manualAddDescription": "输入游戏名称与可执行文件路径（也可只填 exe 文件名，如 eldenring.exe）。",
+      "manualTitlePlaceholder": "游戏名称，如：我的世界",
+      "manualExePlaceholder": "exe 路径或文件名，如：C:\\Games\\Minecraft\\Minecraft.exe",
+      "add": "添加",
+      "added": "已添加",
+      "addFailed": "添加失败",
+      "removed": "已移除",
+      "removeFailed": "移除失败",
+      "manualEmpty": "游戏名称与路径不能为空"
     },
     "data": {
       "clearTitle": "清除所有数据",
