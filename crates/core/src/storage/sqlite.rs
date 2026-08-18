@@ -897,6 +897,47 @@ impl DataStore for SqliteStore {
         out
     }
 
+    fn get_day_hour_apps(&self, date: NaiveDate) -> Vec<Vec<(String, i64)>> {
+        let conn = self.lock();
+        let mut per_hour: [std::collections::HashMap<String, i64>; 24] =
+            std::array::from_fn(|_| std::collections::HashMap::new());
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT app_name, started_at, duration_secs FROM usage_sessions
+             WHERE date = ?1 AND is_idle = 0 AND duration_secs > 0",
+        ) && let Ok(rows) = stmt.query_map(params![date.to_string()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        }) {
+            for row in rows.flatten() {
+                let (app, started, dur) = row;
+                if let Ok(dt) = DateTime::parse_from_rfc3339(&started) {
+                    let start = dt.with_timezone(&Utc);
+                    let end = start + chrono::Duration::seconds(dur);
+                    let mut buckets = [0i64; 24];
+                    add_session_to_hours(&mut buckets, start, end);
+                    for (hour, secs) in buckets.into_iter().enumerate() {
+                        if secs > 0 {
+                            *per_hour[hour].entry(app.clone()).or_insert(0) += secs;
+                        }
+                    }
+                }
+            }
+        }
+        per_hour
+            .into_iter()
+            .map(|acc| {
+                let mut apps: Vec<(String, i64)> = acc.into_iter().collect();
+                apps.sort_by(|(app_a, secs_a), (app_b, secs_b)| {
+                    secs_b.cmp(secs_a).then_with(|| app_a.cmp(app_b))
+                });
+                apps
+            })
+            .collect()
+    }
+
     fn get_app_hourly(&self, app_name: &str, date: NaiveDate) -> Vec<i64> {
         let conn = self.lock();
         let mut hours = [0i64; 24];
@@ -1495,6 +1536,10 @@ impl DataStore for MemoryStore {
         vec![]
     }
 
+    fn get_day_hour_apps(&self, _date: NaiveDate) -> Vec<Vec<(String, i64)>> {
+        vec![vec![]; 24]
+    }
+
     fn get_app_hourly(&self, _app_name: &str, _date: NaiveDate) -> Vec<i64> {
         vec![0; 24]
     }
@@ -1711,6 +1756,12 @@ mod sqlite_tests {
         assert_eq!(find(&h11, "code"), 300, "hour11 code should be 300s");
         assert_eq!(find(&h11, "edge"), 300, "hour11 edge should be 300s");
         assert_eq!(find(&h10, "edge"), 0, "hour10 edge should be 0s");
+        let all_hours = store.get_day_hour_apps(day);
+        assert_eq!(all_hours.len(), 24);
+        assert_eq!(find(&all_hours[10], "code"), 300);
+        assert_eq!(find(&all_hours[11], "code"), 300);
+        assert_eq!(find(&all_hours[11], "edge"), 300);
+        assert_eq!(find(&all_hours[10], "edge"), 0);
         let code_hourly = store.get_app_hourly("code", day);
         assert_eq!(code_hourly[10], 300);
         assert_eq!(code_hourly[11], 300);

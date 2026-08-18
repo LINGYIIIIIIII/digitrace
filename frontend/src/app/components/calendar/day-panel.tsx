@@ -31,7 +31,7 @@ export function DayPanel({ date, onBack }: { date: string; onBack: () => void })
           apiService.getDayDetail(date),
           apiService.getDayHourly(date),
           apiService.getDayMetrics(date),
-          Promise.all(Array.from({ length: 24 }, (_, hh) => apiService.getHourApps(date, hh))),
+          apiService.getDayHourApps(date),
         ]);
         if (cancelled) return;
         setDetail(d);
@@ -91,6 +91,15 @@ export function DayPanel({ date, onBack }: { date: string; onBack: () => void })
     return raw.filter((_, i) => i % step === 0);
   }, [metrics]);
 
+  const gpuPowerData = useMemo(() => {
+    const raw = (metrics?.gpu_power_watts ?? []).map((p) => ({
+      t: fmtMin(p.minute),
+      watts: p.avg,
+    }));
+    const step = Math.max(1, Math.floor(raw.length / 96));
+    return raw.filter((_, i) => i % step === 0);
+  }, [metrics]);
+
   const netData = useMemo(() => {
     const byMin = new Map<number, { down: number; up: number }>();
     for (const p of metrics?.net_down_bps ?? []) {
@@ -113,7 +122,7 @@ export function DayPanel({ date, onBack }: { date: string; onBack: () => void })
       });
   }, [metrics]);
 
-  const hasHw = cpuData.length > 0 || tempData.length > 0;
+  const hasHw = cpuData.length > 0 || tempData.length > 0 || gpuPowerData.length > 0;
   const hasNet = netData.length > 0;
   const hasApps = topApps.length > 0;
 
@@ -274,6 +283,34 @@ export function DayPanel({ date, onBack }: { date: string; onBack: () => void })
                     {tempData.some((p) => p.gpu != null) && (
                       <Line type="monotone" dataKey="gpu" name={t('calendar.gpuTemp')} stroke="#ec4899" strokeWidth={2} dot={false} isAnimationActive={false} />
                     )}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {gpuPowerData.length > 0 && (
+              <div className="h-40 border-t border-border/60 p-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={gpuPowerData} margin={{ left: -14, right: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                    <XAxis dataKey="t" tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} interval="preserveStartEnd" />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: 'var(--chart-tick)' }}
+                      width={42}
+                      tickFormatter={(v) => `${Number(v).toFixed(0)}W`}
+                    />
+                    <Tooltip
+                      cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}
+                      content={<ChartTooltip valueFormatter={(v) => `${Number(v).toFixed(1)} W`} />}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="watts"
+                      name={t('calendar.gpuPower')}
+                      stroke="#8e24aa"
+                      strokeWidth={2}
+                      dot={false}
+                      isAnimationActive={false}
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

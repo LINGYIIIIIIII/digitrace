@@ -46,6 +46,7 @@ type LivePoint = {
   memPct: number | null;
   cpuTemp: number | null;
   gpuTemp: number | null;
+  gpuPower: number | null;
 };
 
 // 曲线配色：占用率蓝/橙，温度红/绿，一眼可分。
@@ -54,6 +55,7 @@ const LINE_COLORS = {
   memPct: '#FB8C00',
   cpuTemp: '#E53935',
   gpuTemp: '#43A047',
+  gpuPower: '#8E24AA',
 };
 
 // 本地最多保留 3600 个点（1 秒轮询可覆盖 60 分钟窗口）。
@@ -94,6 +96,7 @@ export default function HardwarePage() {
           memPct: hw.memory_total_bytes > 0 ? (hw.memory_used_bytes / hw.memory_total_bytes) * 100 : null,
           cpuTemp: tp.cpu.available ? (tp.cpu.temp_celsius ?? null) : null,
           gpuTemp: tp.gpus[0]?.temp_celsius ?? null,
+          gpuPower: tp.gpus[0]?.power_watts ?? null,
         };
         const next = [...liveRef.current, point];
         if (next.length > MAX_POINTS) next.shift();
@@ -314,9 +317,21 @@ export default function HardwarePage() {
                   tick={{ fontSize: 10, fill: 'var(--chart-tick)' }}
                   width={42}
                 />
+                <YAxis
+                  yAxisId="power"
+                  orientation="right"
+                  domain={[0, 'auto']}
+                  hide
+                />
                 <Tooltip
                   cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}
-                  content={<ChartTooltip valueFormatter={(v) => Number(v).toFixed(1)} />}
+                  content={
+                    <ChartTooltip
+                      valueFormatter={(v, name) =>
+                        `${Number(v).toFixed(1)}${name === t('hardware.gpuPowerLine') ? ' W' : ''}`
+                      }
+                    />
+                  }
                 />
                 <Legend />
                 <Line
@@ -348,6 +363,17 @@ export default function HardwarePage() {
                   dot={false}
                   strokeWidth={2}
                   isAnimationActive={false}
+                />
+                <Line
+                  yAxisId="power"
+                  type="monotone"
+                  name={t('hardware.gpuPowerLine')}
+                  dataKey="gpuPower"
+                  stroke={LINE_COLORS.gpuPower}
+                  dot={false}
+                  strokeWidth={2}
+                  isAnimationActive={false}
+                  connectNulls
                 />
                 <Line
                   yAxisId="temp"

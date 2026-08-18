@@ -120,6 +120,7 @@ export interface DayMetricsDto {
   cpu_temp_c: DayMetricPointDto[];
   gpu_usage_percent: DayMetricPointDto[];
   gpu_temp_c: DayMetricPointDto[];
+  gpu_power_watts: DayMetricPointDto[];
   net_down_bps: DayMetricPointDto[];
   net_up_bps: DayMetricPointDto[];
 }
@@ -266,6 +267,7 @@ export interface GpuTemperatureDto {
   name: string;
   temp_celsius: number | null;
   usage_percent: number | null;
+  power_watts: number | null;
 }
 
 export interface DiskTemperatureDto {

@@ -184,6 +184,7 @@
     "mem": "Memory",
     "cpuTemp": "CPU temp",
     "gpuTemp": "GPU temp",
+    "gpuPower": "GPU power",
     "empty": "No data",
     "noMetrics": "No monitoring record for this day (data only covers periods when monitoring ran)"
   },
@@ -248,6 +249,7 @@
     "memPct": "Memory usage (%)",
     "cpuTempLine": "CPU temperature (°C)",
     "gpuTempLine": "GPU temperature (°C)",
+    "gpuPowerLine": "GPU power (W)",
     "liveTitle": "Live curve",
     "liveHint": "Live refresh interval: {{seconds}}s (adjustable in Settings → General → Live data refresh interval)",
     "usageLabel": "Usage {{pct}}%",
@@ -502,6 +504,7 @@
     "title": "New version v{{version}} detected",
     "description": "Quit the current version and launch the new one?",
     "elevatedHint": "The new version will start as administrator. Click \"Switch now\" and confirm the system security prompt.",
+    "failed": "Unable to start the new version. Please try again.",
     "switchNow": "Switch now",
     "later": "Later",
     "showWindow": "Open the main window after switching"

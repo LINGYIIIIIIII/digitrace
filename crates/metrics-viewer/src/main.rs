@@ -210,14 +210,6 @@ fn build_lines() -> Vec<(String, String)> {
         ),
         ("下行速率".to_string(), fmt_bps(s.net_down_bps)),
         ("上行速率".to_string(), fmt_bps(s.net_up_bps)),
-        (
-            "帧率".to_string(),
-            if s.fps >= 0.0 {
-                format!("{:.0} fps", s.fps)
-            } else {
-                "—".to_string()
-            },
-        ),
         ("前台应用".to_string(), s.active_app_str().to_string()),
     ]
 }

@@ -184,6 +184,7 @@
     "mem": "メモリ",
     "cpuTemp": "CPU温度",
     "gpuTemp": "GPU温度",
+    "gpuPower": "GPU 消費電力",
     "empty": "データなし",
     "noMetrics": "この日の監視記録はありません（監視稼働時間のみ記録）"
   },
@@ -248,6 +249,7 @@
     "memPct": "メモリ使用率 (%)",
     "cpuTempLine": "CPU 温度 (°C)",
     "gpuTempLine": "GPU 温度 (°C)",
+    "gpuPowerLine": "GPU 消費電力 (W)",
     "liveTitle": "リアルタイム曲線",
     "liveHint": "リアルタイム更新間隔 {{seconds}} 秒（設定 → 一般 → リアルタイムデータ更新間隔で変更可）",
     "usageLabel": "使用率 {{pct}}%",
@@ -502,6 +504,7 @@
     "title": "新しいバージョン v{{version}} を検出しました",
     "description": "現在のバージョンを終了して新しいバージョンを起動しますか？",
     "elevatedHint": "新しいバージョンは管理者として起動します。「今すぐ切り替え」をクリックし、システムのセキュリティ確認で「はい」を選択してください。",
+    "failed": "新しいバージョンを起動できません。もう一度お試しください。",
     "switchNow": "今すぐ切り替え",
     "later": "後で",
     "showWindow": "切り替え後にメイン画面を開く"

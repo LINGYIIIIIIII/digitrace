@@ -17,6 +17,7 @@ impl TimeTraceApi {
             cpu_temp_c: q("cpu_temp_c"),
             gpu_usage_percent: q("gpu_usage_percent"),
             gpu_temp_c: q("gpu_temp_c"),
+            gpu_power_watts: q("gpu_power_watts"),
             net_down_bps: q("net_down_bps"),
             net_up_bps: q("net_up_bps"),
         }
@@ -72,6 +73,7 @@ impl TimeTraceApi {
                     name: g.name,
                     temp_celsius: g.temp_celsius,
                     usage_percent: g.usage_percent,
+                    power_watts: g.power_watts,
                 })
                 .collect(),
             disks: snap
@@ -116,7 +118,7 @@ impl TimeTraceApi {
             let total = (s.memory_total_bytes.max(1)) as f64;
             (s.cpu_percent, used / 1_048_576.0, used / total * 100.0)
         };
-        let (cpu_temp, gpu_usage, gpu_temp) = {
+        let (cpu_temp, gpu_usage, gpu_temp, gpu_power) = {
             let mut t = self.temperature.lock().unwrap_or_else(|p| p.into_inner());
             let s = t.snapshot();
             let gpu = s.gpus.first();
@@ -124,6 +126,7 @@ impl TimeTraceApi {
                 s.cpu.temp_celsius.unwrap_or(-1.0),
                 gpu.and_then(|g| g.usage_percent).unwrap_or(-1.0),
                 gpu.and_then(|g| g.temp_celsius).unwrap_or(-1.0),
+                gpu.and_then(|g| g.power_watts).unwrap_or(-1.0),
             )
         };
         let (down, up) = {
@@ -167,6 +170,9 @@ impl TimeTraceApi {
         }
         if gpu_temp >= 0.0 {
             items.push(("gpu_temp_c", gpu_temp));
+        }
+        if gpu_power >= 0.0 {
+            items.push(("gpu_power_watts", gpu_power));
         }
         self.monitor_core.record_extra_metrics(&items);
     }

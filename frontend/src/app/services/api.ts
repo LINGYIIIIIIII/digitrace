@@ -98,6 +98,10 @@ class ApiService {
     return invoke<AppUsageDto[]>('get_hour_apps', { date, hour });
   }
 
+  async getDayHourApps(date: string): Promise<AppUsageDto[][]> {
+    return invoke<AppUsageDto[][]>('get_day_hour_apps', { date });
+  }
+
   async getAppHourly(appName: string, date: string): Promise<number[]> {
     return invoke<number[]>('get_app_hourly', { appName, date });
   }

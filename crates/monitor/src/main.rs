@@ -128,6 +128,7 @@ fn main() {
         let gpu = ts.gpus.first();
         let gpu_usage = gpu.and_then(|g| g.usage_percent).unwrap_or(-1.0);
         let gpu_temp = gpu.and_then(|g| g.temp_celsius).unwrap_or(-1.0);
+        let gpu_power = gpu.and_then(|g| g.power_watts).unwrap_or(-1.0);
         let mem_percent = hs.memory_used_bytes as f64 / mem_total * 100.0;
 
         let mut snap = metrics::MetricsSnapshot {
@@ -166,6 +167,9 @@ fn main() {
         }
         if gpu_temp >= 0.0 {
             store.record(&now_fixed, "gpu_temp_c", gpu_temp);
+        }
+        if gpu_power >= 0.0 {
+            store.record(&now_fixed, "gpu_power_watts", gpu_power);
         }
         store.record(&now_fixed, "net_down_bps", ns.download_bytes_per_sec as f64);
         store.record(&now_fixed, "net_up_bps", ns.upload_bytes_per_sec as f64);

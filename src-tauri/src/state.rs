@@ -7,4 +7,6 @@ pub struct AppState {
     pub api: std::sync::Mutex<TimeTraceApi>,
     /// 启动后是否需要显示主窗口（前端就绪后由 mark_ui_ready 触发，避免首帧黑闪）。
     pub should_show: std::sync::atomic::AtomicBool,
+    /// 前端已注册事件监听器。接管请求在此之前到达时使用原生确认框，避免丢事件。
+    pub ui_ready: std::sync::atomic::AtomicBool,
 }

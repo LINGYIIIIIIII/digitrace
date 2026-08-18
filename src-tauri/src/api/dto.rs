@@ -73,6 +73,7 @@ pub struct DayMetricsDto {
     pub cpu_temp_c: Vec<DayMetricPointDto>,
     pub gpu_usage_percent: Vec<DayMetricPointDto>,
     pub gpu_temp_c: Vec<DayMetricPointDto>,
+    pub gpu_power_watts: Vec<DayMetricPointDto>,
     pub net_down_bps: Vec<DayMetricPointDto>,
     pub net_up_bps: Vec<DayMetricPointDto>,
 }
@@ -205,6 +206,7 @@ pub struct GpuTemperatureDto {
     pub name: String,
     pub temp_celsius: Option<f64>,
     pub usage_percent: Option<f64>,
+    pub power_watts: Option<f64>,
 }
 
 /// 物理磁盘温度快照。

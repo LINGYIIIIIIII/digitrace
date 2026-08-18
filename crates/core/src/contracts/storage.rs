@@ -251,6 +251,11 @@ pub trait DataStore: Send + Sync {
     /// sessions split across hour boundaries).
     fn get_hour_apps(&self, date: NaiveDate, hour: u32) -> Vec<(String, i64)>;
 
+    /// Apps active in every hour of a day. Each inner list is sorted by
+    /// descending active seconds and uses the same hour-splitting semantics
+    /// as `get_hour_apps`.
+    fn get_day_hour_apps(&self, date: NaiveDate) -> Vec<Vec<(String, i64)>>;
+
     /// Hourly active-seconds for one app on a date (24 buckets, hour-split).
     fn get_app_hourly(&self, app_name: &str, date: NaiveDate) -> Vec<i64>;
 

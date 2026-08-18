@@ -205,6 +205,11 @@ pub fn get_hour_apps(state: State<'_, AppState>, date: String, hour: u32) -> Vec
 }
 
 #[tauri::command]
+pub fn get_day_hour_apps(state: State<'_, AppState>, date: String) -> Vec<Vec<AppUsageDto>> {
+    lock(&state).get_day_hour_apps(date)
+}
+
+#[tauri::command]
 pub fn get_app_hourly(state: State<'_, AppState>, app_name: String, date: String) -> Vec<i64> {
     lock(&state).get_app_hourly(app_name, date)
 }
@@ -310,6 +315,7 @@ pub fn open_external_url(url: String) -> Result<(), String> {
 #[tauri::command]
 pub fn mark_ui_ready(app: tauri::AppHandle, state: State<'_, AppState>) {
     use std::sync::atomic::Ordering;
+    state.ui_ready.store(true, Ordering::Relaxed);
     if state.should_show.load(Ordering::Relaxed) {
         crate::lifecycle::show_main_window(&app);
     }

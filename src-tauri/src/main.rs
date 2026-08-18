@@ -103,6 +103,7 @@ fn main() {
             app.manage(AppState {
                 api: std::sync::Mutex::new(api),
                 should_show: std::sync::atomic::AtomicBool::new(should_show),
+                ui_ready: std::sync::atomic::AtomicBool::new(false),
             });
 
             // 连续游戏提醒后台线程（读取 AppState 里的数据库句柄）。
@@ -213,6 +214,7 @@ fn main() {
             api::get_year_heatmap,
             api::get_active_session_elapsed,
             api::get_hour_apps,
+            api::get_day_hour_apps,
             api::get_app_hourly,
             api::clear_data,
             api::export_csv,

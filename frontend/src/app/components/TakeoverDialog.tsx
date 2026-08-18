@@ -34,6 +34,7 @@ export default function TakeoverDialog() {
   );
   const [pending, setPending] = useState<PendingTakeover | null>(null);
   const [switching, setSwitching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // 切换后是否打开主界面（默认跟随「启动时隐藏」设置的反面）。
   const [showWindow, setShowWindow] = useState(true);
 
@@ -41,7 +42,10 @@ export default function TakeoverDialog() {
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listen<PendingTakeover>('takeover-pending', (event) => {
-      if (!disposed) setPending(event.payload);
+      if (!disposed) {
+        setError(null);
+        setPending(event.payload);
+      }
     }).then((fn) => {
       unlisten = fn;
     });
@@ -59,10 +63,14 @@ export default function TakeoverDialog() {
       if (config && config.launch_show_window !== showWindow) {
         await updateConfig({ ...config, launch_show_window: showWindow });
       }
-      await apiService.switchToPending(pending.exe_path, pending.elevated);
+      const result = await apiService.switchToPending(pending.exe_path, pending.elevated);
+      if (!result.ok) {
+        setError(result.message ?? t('takeover.failed'));
+        setSwitching(false);
+      }
     } catch {
       setSwitching(false);
-      setPending(null);
+      setError(t('takeover.failed'));
     }
   };
 
@@ -83,6 +91,7 @@ export default function TakeoverDialog() {
             {t('takeover.elevatedHint')}
           </p>
         )}
+        {error && <p className="text-xs text-destructive">{error}</p>}
         <DialogFooter>
           <div className="flex w-full flex-col gap-3">
             <div className="flex items-center justify-between gap-3">
@@ -94,7 +103,7 @@ export default function TakeoverDialog() {
               />
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setPending(null)}>
+              <Button variant="outline" onClick={() => { setError(null); setPending(null); }}>
                 {t('takeover.later')}
               </Button>
               <Button loading={switching} onClick={() => void doSwitch()}>

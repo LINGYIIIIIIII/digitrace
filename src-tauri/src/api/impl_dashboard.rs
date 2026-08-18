@@ -185,6 +185,24 @@ impl TimeTraceApi {
             .collect()
     }
 
+    /// Apps active in all 24 hours of a day. This avoids issuing one storage
+    /// query per hour for the calendar day panel.
+    pub fn get_day_hour_apps(&self, date: String) -> Vec<Vec<AppUsageDto>> {
+        DataStore::get_day_hour_apps(&*self.db, parse_date(&date))
+            .into_iter()
+            .map(|apps| {
+                apps.into_iter()
+                    .map(|(app_name, active_seconds)| AppUsageDto {
+                        app_name,
+                        active_seconds,
+                        idle_seconds: 0,
+                        exe_path: String::new(),
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
     /// Hourly active-seconds for one app on a date (24 buckets).
     pub fn get_app_hourly(&self, app_name: String, date: String) -> Vec<i64> {
         DataStore::get_app_hourly(&*self.db, &app_name, parse_date(&date))

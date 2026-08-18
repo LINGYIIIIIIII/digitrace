@@ -184,6 +184,7 @@
     "mem": "内存",
     "cpuTemp": "CPU 温度",
     "gpuTemp": "GPU 温度",
+    "gpuPower": "GPU 功耗",
     "empty": "暂无数据",
     "noMetrics": "当日无该监控记录（监控数据仅覆盖运行时段）"
   },
@@ -248,6 +249,7 @@
     "memPct": "内存使用率 (%)",
     "cpuTempLine": "CPU 温度 (°C)",
     "gpuTempLine": "GPU 温度 (°C)",
+    "gpuPowerLine": "GPU 功耗 (W)",
     "liveTitle": "实时曲线",
     "liveHint": "实时刷新间隔 {{seconds}} 秒（可在 设置 → 常规 → 实时数据刷新间隔 调整）",
     "usageLabel": "占用 {{pct}}%",
@@ -502,6 +504,7 @@
     "title": "检测到新版本 v{{version}}",
     "description": "是否退出当前版本并启动新版本？",
     "elevatedHint": "新版本将以管理员身份启动，点击「立即切换」后请在弹出的系统安全提示中点「是」。",
+    "failed": "无法启动新版本，请稍后重试。",
     "switchNow": "立即切换",
     "later": "稍后",
     "showWindow": "切换后打开主界面"

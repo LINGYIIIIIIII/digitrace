@@ -1,25 +1,24 @@
 //! 温度监控：GPU（NVML）/ 磁盘（存储温度属性）/ CPU（PawnIO 内核驱动，可选）。
 //!
 //! 权限取舍（交给用户选择，与 THRM 等软件共用 PawnIO 驱动，不重复安装）：
-//! - GPU 温度：NVML（nvidia-smi 同款接口），免管理员即可读取。
+//! - GPU 温度/利用率/功耗：通过隔离的 `nvidia-smi` 子进程读取，免管理员即可读取；
+//!   驱动异常不会拖垮主进程。
 //! - 磁盘温度：Windows 存储温度查询接口，尽力而为；部分磁盘在非管理员下返回 0。
 //! - CPU 温度：需要 PawnIO 内核驱动（已装则直接复用），且 MSR 读取要求进程以管理员
 //!   身份运行；未满足时返回明确提示，不猜测、不伪造数据。
 
-use std::ffi::c_void;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use windows::Win32::Foundation::{CloseHandle, FreeLibrary, HANDLE, HMODULE};
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Security::{GetTokenInformation, TOKEN_QUERY, TokenElevation};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_MODE,
     OPEN_EXISTING,
 };
 use windows::Win32::System::IO::DeviceIoControl;
-use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 use windows::Win32::System::Threading::{
     GetActiveProcessorCount, GetCurrentProcess, GetCurrentThread, OpenProcessToken,
     SetThreadAffinityMask,
@@ -52,6 +51,8 @@ static PAWNIO_SETUP_EXE: &[u8] = include_bytes!("../../resources/pawnio/PawnIO_s
 const IOCTL_STORAGE_QUERY_PROPERTY: u32 = 0x002D1400;
 const STORAGE_PROPERTY_DEVICE_DESCRIPTOR: u32 = 0;
 const STORAGE_PROPERTY_TEMPERATURE: u32 = 6;
+/// 同一秒内的多个 UI/指标消费者复用一次 GPU 子进程查询。
+const GPU_CACHE_TTL: Duration = Duration::from_secs(1);
 
 #[repr(C)]
 struct StoragePropertyQuery {
@@ -132,6 +133,8 @@ pub struct GpuTemperature {
     pub temp_celsius: Option<f64>,
     /// GPU 使用率（0-100，NVML utilization，免管理员）。
     pub usage_percent: Option<f64>,
+    /// GPU 板卡功耗（瓦特，NVML power usage，驱动不支持时无值）。
+    pub power_watts: Option<f64>,
 }
 
 /// 物理磁盘温度快照。
@@ -157,9 +160,11 @@ pub struct DriverActionResult {
     pub message: String,
 }
 
-/// 温度监控器：持有 NVML 句柄与磁盘缓存，多次 snapshot 复用句柄。
+/// 温度监控器：缓存 GPU 子进程快照与磁盘查询结果，避免重复查询。
 pub struct TemperatureMonitor {
     nvml: Option<NvmlContext>,
+    /// GPU 查询会启动隔离的 nvidia-smi 子进程；只缓存这部分，CPU/磁盘保持原刷新节奏。
+    gpu_cache: Option<(Instant, Vec<GpuTemperature>)>,
     disk_cache: Option<(Instant, Vec<DiskTemperature>)>,
     /// Windows 存储可靠性计数器查询结果缓存（管理员下可用，开销较高所以缓存 15 秒）。
     ps_disk_cache: Option<(Instant, Vec<DiskTemperature>)>,
@@ -169,6 +174,7 @@ impl TemperatureMonitor {
     pub fn new() -> Self {
         Self {
             nvml: NvmlContext::load(),
+            gpu_cache: None,
             disk_cache: None,
             ps_disk_cache: None,
         }
@@ -183,10 +189,18 @@ impl TemperatureMonitor {
     }
 
     fn gpu_snapshot(&mut self) -> Vec<GpuTemperature> {
+        let now = Instant::now();
+        if let Some((at, cached)) = &self.gpu_cache
+            && gpu_cache_is_fresh(*at, now)
+        {
+            return cached.clone();
+        }
         let Some(ctx) = self.nvml.as_mut() else {
             return Vec::new();
         };
-        ctx.snapshot()
+        let snapshot = ctx.snapshot();
+        self.gpu_cache = Some((now, snapshot.clone()));
+        snapshot
     }
 
     fn disk_snapshot(&mut self) -> Vec<DiskTemperature> {
@@ -226,110 +240,120 @@ impl Default for TemperatureMonitor {
     }
 }
 
-// ────────────────────────────── NVML（GPU） ──────────────────────────────
-
-type NvmlInitFn = unsafe extern "system" fn() -> i32;
-type NvmlGetHandleFn = unsafe extern "system" fn(u32, *mut *mut c_void) -> i32;
-type NvmlGetNameFn = unsafe extern "system" fn(*mut c_void, *mut i8, u32) -> i32;
-type NvmlGetTempFn = unsafe extern "system" fn(*mut c_void, u32, *mut u32) -> i32;
-type NvmlGetUtilFn = unsafe extern "system" fn(*mut c_void, *mut NvmlUtilization) -> i32;
-type NvmlShutdownFn = unsafe extern "system" fn() -> i32;
-
-#[repr(C)]
-struct NvmlUtilization {
-    gpu: u32,
-    memory: u32,
+fn gpu_cache_is_fresh(cached_at: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(cached_at) < GPU_CACHE_TTL
 }
 
+// ────────────────────────────── GPU（隔离查询） ──────────────────────────────
+
+/// GPU 查询上下文。
+///
+/// 旧实现把 `nvml.dll` 加载进主进程。NVML/驱动的访问冲突属于 SEH，Rust 无法用
+/// `catch_unwind` 捕获，最终会直接结束数迹进程（2026-08-18 事件日志为 0xc0000005）。
+/// 现在由 `nvidia-smi` 子进程读取相同的 NVML 指标；驱动 DLL 即使崩溃，也只会终止
+/// 这个子进程，主进程得到空快照后仍可采集 CPU、磁盘和网络数据。
 struct NvmlContext {
-    _module: HMODULE,
-    init: NvmlInitFn,
-    get_handle: NvmlGetHandleFn,
-    get_name: NvmlGetNameFn,
-    get_temp: NvmlGetTempFn,
-    get_util: NvmlGetUtilFn,
-    shutdown: NvmlShutdownFn,
-    inited: bool,
+    /// 连续失败时临时熔断，避免无驱动或驱动重置期间每秒反复拉起子进程。
+    retry_after: Option<Instant>,
 }
 
 impl NvmlContext {
     fn load() -> Option<Self> {
-        unsafe {
-            let module = LoadLibraryW(w!("nvml.dll")).ok()?;
-            macro_rules! load_fn {
-                ($name:literal, $ty:ty) => {
-                    match GetProcAddress(module, windows::core::s!($name)) {
-                        Some(fp) => {
-                            // GetProcAddress 返回 FARPROC（fn() -> isize），按目标签名转成函数指针。
-                            std::mem::transmute::<unsafe extern "system" fn() -> isize, $ty>(fp)
-                        }
-                        None => {
-                            let _ = FreeLibrary(module);
-                            return None;
-                        }
-                    }
-                };
-            }
-            let ctx = Self {
-                _module: module,
-                init: load_fn!("nvmlInit_v2", NvmlInitFn),
-                get_handle: load_fn!("nvmlDeviceGetHandleByIndex_v2", NvmlGetHandleFn),
-                get_name: load_fn!("nvmlDeviceGetName", NvmlGetNameFn),
-                get_temp: load_fn!("nvmlDeviceGetTemperature", NvmlGetTempFn),
-                get_util: load_fn!("nvmlDeviceGetUtilizationRates", NvmlGetUtilFn),
-                shutdown: load_fn!("nvmlShutdown", NvmlShutdownFn),
-                inited: false,
-            };
-            Some(ctx)
-        }
+        // 不在主进程调用 LoadLibraryW，也不在启动时阻塞探测驱动；实际查询失败会熔断。
+        Some(Self { retry_after: None })
     }
 
     fn snapshot(&mut self) -> Vec<GpuTemperature> {
-        unsafe {
-            if !self.inited {
-                if (self.init)() != 0 {
-                    return Vec::new();
-                }
-                self.inited = true;
-            }
-            let mut out = Vec::new();
-            for index in 0..4u32 {
-                let mut device = std::ptr::null_mut();
-                if (self.get_handle)(index, &mut device) != 0 {
-                    break;
-                }
-                let mut name_buf = [0i8; 256];
-                (self.get_name)(device, name_buf.as_mut_ptr(), name_buf.len() as u32);
-                let name = cstr_from_i8(&name_buf);
-                let mut temp = 0u32;
-                let ok = (self.get_temp)(device, 0, &mut temp) == 0;
-                let mut util = NvmlUtilization { gpu: 0, memory: 0 };
-                let util_ok = (self.get_util)(device, &mut util) == 0;
-                out.push(GpuTemperature {
-                    name,
-                    temp_celsius: if ok { Some(temp as f64) } else { None },
-                    usage_percent: if util_ok { Some(util.gpu as f64) } else { None },
-                });
-            }
-            out
+        if self
+            .retry_after
+            .is_some_and(|deadline| deadline > Instant::now())
+        {
+            return Vec::new();
         }
+        let mut child = match std::process::Command::new("nvidia-smi.exe")
+            .args([
+                "--query-gpu=name,temperature.gpu,utilization.gpu,power.draw",
+                "--format=csv,noheader,nounits",
+            ])
+            .creation_flags(0x0800_0000)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(_) => return self.fail(),
+        };
+
+        // 驱动重置时 nvidia-smi 偶尔会卡住，绝不允许它卡住 1Hz 主采集循环。
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) if status.success() => break,
+                Ok(Some(_)) | Err(_) => return self.fail(),
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(20))
+                }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return self.fail();
+                }
+            }
+        }
+
+        let output = match child.wait_with_output() {
+            Ok(output) if output.status.success() => output,
+            _ => return self.fail(),
+        };
+        let parsed: Vec<_> = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(parse_nvidia_smi_gpu)
+            .collect();
+        if parsed.is_empty() {
+            return self.fail();
+        }
+        self.retry_after = None;
+        parsed
+    }
+
+    fn fail(&mut self) -> Vec<GpuTemperature> {
+        // `nvidia-smi` 与驱动/NVML 在独立进程内运行，失败仅记录一次并短暂熔断。
+        tracing::warn!("GPU 查询失败，已暂停 60 秒后重试；主监控继续运行");
+        self.retry_after = Some(Instant::now() + Duration::from_secs(60));
+        Vec::new()
     }
 }
 
-impl Drop for NvmlContext {
-    fn drop(&mut self) {
-        unsafe {
-            if self.inited {
-                let _ = (self.shutdown)();
-            }
-            let _ = FreeLibrary(self._module);
-        }
+fn parse_nvidia_smi_gpu(line: &str) -> Option<GpuTemperature> {
+    let mut fields = line.split(',').map(str::trim);
+    let name = fields.next()?.to_string();
+    if name.is_empty() {
+        return None;
     }
+    let temp_celsius = parse_nvidia_number(fields.next()?);
+    let usage_percent = parse_nvidia_number(fields.next()?);
+    let power_watts = parse_nvidia_number(fields.next()?);
+    // 仅当至少一个指标有效时才返回，避免将驱动错误的 N/A 行当作真实 GPU。
+    (temp_celsius.is_some() || usage_percent.is_some() || power_watts.is_some()).then_some(
+        GpuTemperature {
+            name,
+            temp_celsius,
+            usage_percent,
+            power_watts,
+        },
+    )
 }
 
-// NVML 句柄只经 TimeTraceApi 的 Mutex 串行访问，跨线程移动安全。
-unsafe impl Send for NvmlContext {}
-unsafe impl Sync for NvmlContext {}
+fn parse_nvidia_number(value: &str) -> Option<f64> {
+    let normalized = value.split_whitespace().next()?.trim_end_matches('%');
+    if normalized.eq_ignore_ascii_case("n/a") || normalized.eq_ignore_ascii_case("[n/a]") {
+        return None;
+    }
+    normalized
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite())
+}
 
 // ────────────────────────────── 磁盘温度 ──────────────────────────────
 
@@ -1114,12 +1138,6 @@ fn reg_string(subkey: &str, value: &str) -> Option<String> {
         .ok()
 }
 
-fn cstr_from_i8(buf: &[i8]) -> String {
-    let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    let bytes: Vec<u8> = buf[..len].iter().map(|&b| b as u8).collect();
-    String::from_utf8_lossy(&bytes).trim().to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1154,6 +1172,30 @@ mod tests {
         // 无效值。
         assert_eq!(kelvin_or_celsius(0), None);
         assert_eq!(kelvin_or_celsius(0xFF), None);
+    }
+
+    #[test]
+    fn nvidia_smi_csv_parses_temperature_usage_and_power() {
+        let gpu = parse_nvidia_smi_gpu("NVIDIA GeForce RTX 4090, 58, 42 %, 271.43 W").unwrap();
+        assert_eq!(gpu.name, "NVIDIA GeForce RTX 4090");
+        assert_eq!(gpu.temp_celsius, Some(58.0));
+        assert_eq!(gpu.usage_percent, Some(42.0));
+        assert_eq!(gpu.power_watts, Some(271.43));
+    }
+
+    #[test]
+    fn nvidia_smi_csv_omits_all_unavailable_values() {
+        assert!(parse_nvidia_smi_gpu("NVIDIA GPU, [N/A], N/A, N/A").is_none());
+        assert_eq!(parse_nvidia_number(" 16 % "), Some(16.0));
+        assert_eq!(parse_nvidia_number("N/A"), None);
+    }
+
+    #[test]
+    fn gpu_cache_expires_at_one_second_boundary() {
+        let now = Instant::now();
+        assert!(gpu_cache_is_fresh(now, now + Duration::from_millis(999)));
+        assert!(!gpu_cache_is_fresh(now, now + GPU_CACHE_TTL));
+        assert!(!gpu_cache_is_fresh(now, now + Duration::from_secs(2)));
     }
 
     #[test]

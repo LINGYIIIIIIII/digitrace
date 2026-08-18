@@ -6,6 +6,70 @@
 use crate::state::AppState;
 use tauri::{AppHandle, Emitter, Manager};
 
+#[cfg(windows)]
+fn normalized_path(path: &std::path::Path) -> String {
+    path.to_string_lossy().replace('/', "\\").to_lowercase()
+}
+
+#[cfg(windows)]
+fn normalized_stem(value: &str) -> String {
+    std::path::Path::new(value)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_lowercase())
+        .unwrap_or_else(|| value.trim_end_matches(".exe").to_lowercase())
+}
+
+#[cfg(windows)]
+fn is_main_binary_name(name: &str) -> bool {
+    let lower = normalized_stem(name);
+    (lower.contains("数迹") || lower.contains("timetrace") || lower.contains("digitrace"))
+        && !lower.contains("monitor")
+        && !lower.contains("viewer")
+        && !lower.contains("lite")
+}
+
+/// 判断进程是否是另一个版本的完整版主程序。
+///
+/// Windows 在跨完整性级别查询管理员进程时可能拒绝读取其 exe 路径。
+/// 这时退回到进程名：正式发布包的主程序名包含版本号，而 monitor/viewer
+/// 使用独立名称，因而不会被误当成需要接管的旧版。
+#[cfg(windows)]
+fn is_other_main_process(
+    process_name: &str,
+    process_exe: Option<&std::path::Path>,
+    current_exe: &std::path::Path,
+) -> bool {
+    if let Some(exe) = process_exe {
+        if normalized_path(exe) == normalized_path(current_exe) {
+            return false;
+        }
+        return exe
+            .file_stem()
+            .map(|s| is_main_binary_name(&s.to_string_lossy()))
+            .unwrap_or(false);
+    }
+
+    if !is_main_binary_name(process_name) {
+        return false;
+    }
+    // 路径不可读且名称相同，最可能是同一路径的重复启动；交给单实例插件
+    // 或 show_request 兜底处理，避免把它误判成版本切换。
+    normalized_stem(process_name) != normalized_stem(&current_exe.to_string_lossy())
+}
+
+#[cfg(windows)]
+fn is_same_path_process(
+    process_name: &str,
+    process_exe: Option<&std::path::Path>,
+    current_exe: &std::path::Path,
+) -> bool {
+    process_exe
+        .map(|exe| normalized_path(exe) == normalized_path(current_exe))
+        .unwrap_or_else(|| {
+            normalized_stem(process_name) == normalized_stem(&current_exe.to_string_lossy())
+        })
+}
+
 /// 显示主窗口（托盘点击 / 单实例回调 / 显示请求共用）。
 pub fn show_main_window<R: tauri::Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
@@ -15,16 +79,65 @@ pub fn show_main_window<R: tauri::Runtime>(app: &AppHandle<R>) {
     }
 }
 
+fn is_ui_ready(app: &AppHandle) -> bool {
+    use std::sync::atomic::Ordering;
+
+    app.try_state::<AppState>()
+        .map(|state| state.ui_ready.load(Ordering::Relaxed))
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn show_native_takeover_prompt(app: &AppHandle, pending: crate::signals::PendingTakeover) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        MessageBoxW, IDYES, MB_ICONINFORMATION, MB_TOPMOST, MB_YESNO,
+    };
+
+    let message = format!(
+        "检测到新版本 v{}。\n\n是否退出当前版本并启动新版本？",
+        pending.version
+    );
+    let wide: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
+    let answer = unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            wide.as_ptr(),
+            windows_sys::core::w!("数迹"),
+            MB_YESNO | MB_ICONINFORMATION | MB_TOPMOST,
+        )
+    };
+    if answer == IDYES {
+        let _ = crate::update::switch_to_pending(app.clone(), pending.exe_path, pending.elevated);
+    }
+}
+
+fn dispatch_takeover_request(app: &AppHandle, pending: crate::signals::PendingTakeover) {
+    let current = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if pending.exe_path == current {
+        return;
+    }
+
+    if is_ui_ready(app) {
+        let _ = app.emit("takeover-pending", pending);
+    } else {
+        // 接管标记可能在 WebView 初始化、前端监听器注册前到达。此时事件会丢失，
+        // 改由原生确认框完成交接，确保新版不会悄然落回旧版界面。
+        #[cfg(windows)]
+        show_native_takeover_prompt(app, pending);
+        #[cfg(not(windows))]
+        {
+            let _ = app.emit("takeover-pending", pending);
+        }
+    }
+}
+
 /// 单实例插件的「第二实例」回调：唤醒本实例时统一处理——
 /// 认领「待切换」标记（新版双击启动）并展开主窗口。
 pub fn handle_second_instance(app: &AppHandle) {
     if let Some(pending) = crate::signals::consume_pending_takeover() {
-        let current = std::env::current_exe()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default();
-        if pending.exe_path != current {
-            let _ = app.emit("takeover-pending", pending);
-        }
+        dispatch_takeover_request(app, pending);
     }
     show_main_window(app);
 }
@@ -46,19 +159,8 @@ pub fn maybe_takeover_old_version() {
     let mut sys = System::new();
     sys.refresh_processes(ProcessesToUpdate::All, true);
     let has_old = sys.processes().iter().any(|(_, p)| {
-        let Some(exe) = p.exe() else { return false };
-        if exe == current {
-            return false;
-        }
-        let name = exe
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_lowercase())
-            .unwrap_or_default();
-        // 只把「另一个主程序」当旧版；独立监控 / Lite 查看器（同家族不同组件）
-        // 必须排除——否则 monitor 常驻时启动主程序会被误判为旧版而弹框失败。
-        let is_main =
-            name.contains("数迹") || name.contains("timetrace") || name.contains("digitrace");
-        is_main && !name.contains("monitor") && !name.contains("viewer") && !name.contains("lite")
+        let name = p.name().to_string_lossy();
+        is_other_main_process(&name, p.exe(), &current)
     });
     if has_old {
         crate::signals::write_pending_takeover(
@@ -96,7 +198,8 @@ pub fn maybe_takeover_old_version() {
     // `--tray`（开机自启）不写：自启保持静默，只交给单实例插件处理。
     if !std::env::args().any(|a| a == "--tray") {
         let has_same_path = sys.processes().iter().any(|(pid, p)| {
-            pid.as_u32() != std::process::id() && p.exe().map(|e| e == current).unwrap_or(false)
+            pid.as_u32() != std::process::id()
+                && is_same_path_process(&p.name().to_string_lossy(), p.exe(), &current)
         });
         if has_same_path {
             crate::signals::write_show_request(&current.to_string_lossy());
@@ -113,13 +216,8 @@ pub fn spawn_takeover_poller(app: AppHandle) {
             show_main_window(&app);
         }
         if let Some(pending) = crate::signals::consume_pending_takeover() {
-            let current = std::env::current_exe()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_default();
-            if pending.exe_path != current {
-                let _ = app.emit("takeover-pending", pending);
-                show_main_window(&app);
-            }
+            dispatch_takeover_request(&app, pending);
+            show_main_window(&app);
         }
         std::thread::sleep(std::time::Duration::from_secs(1));
     });
@@ -144,4 +242,50 @@ pub fn start_working_set_trimmer() {
         std::thread::sleep(std::time::Duration::from_secs(300));
         timetrace_core::mem::trim_working_set();
     });
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::{is_main_binary_name, is_other_main_process, is_same_path_process};
+    use std::path::Path;
+
+    #[test]
+    fn identifies_main_components_and_excludes_sidecars() {
+        assert!(is_main_binary_name("digitrace-2.27.0.exe"));
+        assert!(is_main_binary_name("数迹-v2.26.1-加密版.exe"));
+        assert!(!is_main_binary_name("digitrace-monitor.exe"));
+        assert!(!is_main_binary_name("digitrace-lite-viewer.exe"));
+    }
+
+    #[test]
+    fn falls_back_to_process_name_when_exe_is_inaccessible() {
+        let current = Path::new(r"C:\Apps\digitrace-2.27.0.exe");
+        assert!(is_other_main_process("digitrace-2.26.1.exe", None, current));
+        assert!(!is_other_main_process(
+            "digitrace-2.27.0.exe",
+            None,
+            current
+        ));
+        assert!(!is_other_main_process(
+            "digitrace-monitor.exe",
+            None,
+            current
+        ));
+    }
+
+    #[test]
+    fn path_detection_is_case_insensitive_and_handles_fallback() {
+        let current = Path::new(r"C:\Apps\Digitrace.exe");
+        assert!(!is_other_main_process(
+            "Digitrace.exe",
+            Some(Path::new(r"c:\apps\DIGITRACE.EXE")),
+            current,
+        ));
+        assert!(is_other_main_process(
+            "Digitrace.exe",
+            Some(Path::new(r"c:\old\Digitrace.exe")),
+            current,
+        ));
+        assert!(is_same_path_process("Digitrace.exe", None, current));
+    }
 }
