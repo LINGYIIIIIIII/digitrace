@@ -79,6 +79,24 @@ impl MetricStore {
         Ok(store)
     }
 
+    /// 只读打开已有历史库。跟随采集者的进程使用此入口，避免 schema 初始化、
+    /// WAL checkpoint 或历史清理对共享数据库产生任何写入。
+    pub fn open_readonly(path: PathBuf, retention_days: u64) -> rusqlite::Result<Self> {
+        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let retention_days = if retention_days == 0 {
+            DEFAULT_RETENTION_DAYS
+        } else {
+            retention_days
+        };
+        Ok(Self {
+            conn,
+            retention_days,
+            day: String::new(),
+            minute: 0,
+            buf: HashMap::new(),
+        })
+    }
+
     /// 记录一个采样值。按配置时区的"天 + 分钟"分桶，跨分钟自动 flush。
     pub fn record(&mut self, now: &DateTime<FixedOffset>, metric: &str, value: f64) {
         let day = now.format("%Y-%m-%d").to_string();

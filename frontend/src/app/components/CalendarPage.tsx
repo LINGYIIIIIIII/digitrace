@@ -119,6 +119,7 @@ export default function CalendarPage() {
 
   const goToMonth = useCallback((m: number) => {
     setMonth(m);
+    setSelectedDate(null);
     setView('month');
   }, []);
 
@@ -145,7 +146,13 @@ export default function CalendarPage() {
   if (view === 'day' && selectedDate) {
     return (
       <div className="mx-auto max-w-4xl space-y-4">
-        <DayPanel date={selectedDate} onBack={() => setView('month')} />
+        <DayPanel
+          date={selectedDate}
+          onBack={() => {
+            setSelectedDate(null);
+            setView('month');
+          }}
+        />
       </div>
     );
   }

@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_ALWAYS,
 };
@@ -142,6 +142,42 @@ fn to_wide(s: &str) -> Vec<u16> {
 /// 命名互斥体名称：完整版与独立监控（digitrace-monitor）可能同时写共享内存，
 /// 用「写锁」串行化 publish，并把 seq 改为读现有值 +1（全局单调），避免互相覆盖。
 const WRITE_MUTEX_NAME: &str = r"Local\DigitraceMetricsWrite";
+
+/// 采集职责租约：完整版与独立监控之间只允许一个持有者执行硬件/网络采样、
+/// 写共享内存和写分钟级历史。Windows 会在进程崩溃时自动释放互斥体。
+const COLLECTOR_LEASE_NAME: &str = r"Local\DigitraceCollectorLeaseV1";
+
+pub struct CollectorLease {
+    handle: HANDLE,
+}
+
+unsafe impl Send for CollectorLease {}
+
+impl CollectorLease {
+    /// 非阻塞获取采集租约；已有持有者时返回 `None`，调用方应切换为只读模式。
+    pub fn acquire() -> Option<Self> {
+        unsafe {
+            let name = to_wide(COLLECTOR_LEASE_NAME);
+            let handle = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
+            if handle.is_null() || WaitForSingleObject(handle, 0) != WAIT_OBJECT_0 {
+                if !handle.is_null() {
+                    CloseHandle(handle);
+                }
+                return None;
+            }
+            Some(Self { handle })
+        }
+    }
+}
+
+impl Drop for CollectorLease {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = ReleaseMutex(self.handle);
+            CloseHandle(self.handle);
+        }
+    }
+}
 
 /// 发布方：写映射文件（读/写）。
 pub struct MetricsPublisher {

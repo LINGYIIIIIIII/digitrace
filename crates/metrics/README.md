@@ -39,8 +39,13 @@ if (hdr->magic == METRICS_MAGIC && hdr->version == METRICS_VERSION) {
 
 ## Rust 侧
 
-- 发布方：`metrics::MetricsPublisher::open()` + `publish(snapshot)`（数迹主程序 / digitrace-monitor 每秒发布）
+- 发布方：持有 `metrics::CollectorLease::acquire()` 的进程使用
+  `metrics::MetricsPublisher::open()` + `publish(snapshot)` 每秒发布；同一时刻只允许一个采集者。
 - 读取方：`metrics::MetricsReader::open()` + `read()`（外部 Rust 工具）
+
+采集租约使用 `Local\\DigitraceCollectorLeaseV1` 命名互斥体。完整版与
+`digitrace-monitor.exe` 竞争租约，未获租约的一方自动降级为只读跟随者；持有者异常退出时
+Windows 会自动释放互斥体，不会留下需要手动清理的锁文件。
 
 ## 历史数据
 
@@ -70,4 +75,3 @@ SELECT day, minute, avg, max FROM metric_samples
 WHERE metric = 'cpu_percent' AND day >= date('now', 'localtime', '-1 day')
 ORDER BY day, minute;
 ```
-

@@ -48,11 +48,15 @@ pub struct MonitorCore {
     started_at: DateTime<Utc>,
     /// 实时曲线留存窗口（秒），采样线程每轮读取，配置变更实时生效。
     live_window_secs: Arc<AtomicU64>,
+    /// 当前进程是否持有跨进程采集租约。
+    collector: bool,
+    _collector_lease: Option<metrics::CollectorLease>,
 }
 
 impl MonitorCore {
     /// 启动监控。`db_path` 为 monitor.db 的完整路径；失败静默降级。
-    pub fn start(db_path: PathBuf) -> Self {
+    pub fn start(db_path: PathBuf, collector_lease: Option<metrics::CollectorLease>) -> Self {
+        let collector = collector_lease.is_some();
         let stop = Arc::new(AtomicBool::new(false));
         let state = Arc::new(MonitorState::default());
         let started_at = Utc::now();
@@ -62,14 +66,19 @@ impl MonitorCore {
                 .network_live_window_seconds
                 .clamp(60, 600),
         ));
-        let store = Arc::new(Mutex::new(MetricStore::open(db_path, 90).unwrap_or_else(
-            |_| {
-                MetricStore::open(std::env::temp_dir().join("digitrace_monitor.db"), 90)
-                    .expect("fallback monitor db")
-            },
-        )));
+        let store = Arc::new(Mutex::new(
+            if collector {
+                MetricStore::open(db_path, 90)
+            } else {
+                MetricStore::open_readonly(db_path, 90)
+            }
+            .unwrap_or_else(|_| {
+                // 只读跟随者在数据库尚未创建时使用内存空库，绝不创建目标文件。
+                MetricStore::open(PathBuf::from(":memory:"), 90).expect("fallback monitor db")
+            }),
+        ));
         // ETW 内核网络事件采集（仅管理员权限下可用，用于 ESTATS 不可用时的实时按应用流量）。
-        let etw = if crate::is_elevated() {
+        let etw = if collector && crate::is_elevated() {
             crate::oplog::log_event("ETW", "管理员模式，尝试启动内核网络事件采集");
             Some(crate::etw_net::EtwNetMonitor::start())
         } else {
@@ -85,15 +94,38 @@ impl MonitorCore {
             .name("digitrace-monitor".to_string())
             .spawn(move || {
                 crate::oplog::log_event("MONITOR", "监控采样线程启动");
-                let mut collector = WindowsCollector::new();
+                let mut net_collector = collector.then(WindowsCollector::new);
+                let mut reader = if collector {
+                    None
+                } else {
+                    metrics::MetricsReader::open()
+                };
                 let mut last_flush = chrono::Local::now();
                 // 时区缓存：每 60 秒重读配置，采样写库的"日历日"跟随设置。
                 let mut timezone = crate::AppConfig::load().timezone;
                 let mut last_tz_check = chrono::Local::now();
 
                 while !stop_flag.load(Ordering::Relaxed) {
-                    // 网络快照
-                    let net = collector.poll();
+                    // 租约持有者负责采样；跟随者只读取持有者发布的共享内存快照。
+                    let net = if let Some(net_collector) = net_collector.as_mut() {
+                        net_collector.poll()
+                    } else {
+                        let snapshot = reader.as_ref().and_then(|r| r.read()).or_else(|| {
+                            reader = metrics::MetricsReader::open();
+                            reader.as_ref().and_then(|r| r.read())
+                        });
+                        NetworkSnapshot {
+                            download_bytes_per_sec: snapshot
+                                .as_ref()
+                                .map(|s| s.net_down_bps.max(0.0) as u64)
+                                .unwrap_or_default(),
+                            upload_bytes_per_sec: snapshot
+                                .as_ref()
+                                .map(|s| s.net_up_bps.max(0.0) as u64)
+                                .unwrap_or_default(),
+                            ..Default::default()
+                        }
+                    };
                     *s_state.network.write().unwrap() = net.clone();
 
                     // 秒级实时曲线环形缓冲（按配置窗口裁剪，跨权限可读的秒级历史）
@@ -122,7 +154,7 @@ impl MonitorCore {
                         last_tz_check = now;
                     }
                     let now_fixed = crate::time_util::now_in_for(&timezone);
-                    if let Ok(mut store) = s_store.lock() {
+                    if collector && let Ok(mut store) = s_store.lock() {
                         store.record(
                             &now_fixed,
                             "net_down_bps",
@@ -138,7 +170,7 @@ impl MonitorCore {
                     std::thread::sleep(Duration::from_secs(1));
                 }
                 // 退出前落盘
-                if let Ok(mut store) = s_store.lock() {
+                if collector && let Ok(mut store) = s_store.lock() {
                     let _ = store.flush();
                 }
                 crate::oplog::log_event("MONITOR", "监控采样线程退出");
@@ -153,7 +185,13 @@ impl MonitorCore {
             etw,
             started_at,
             live_window_secs,
+            collector,
+            _collector_lease: collector_lease,
         }
+    }
+
+    pub fn is_collector(&self) -> bool {
+        self.collector
     }
 
     pub fn network_snapshot(&self) -> NetworkSnapshot {
@@ -203,7 +241,7 @@ impl MonitorCore {
     /// 批量记录自定义指标到分钟级历史（供硬件/温度等扩展，如 cpu_percent、cpu_temp_c）。
     /// 值由调用方保证有效（无效值不调用即可）。
     pub fn record_extra_metrics(&self, items: &[(&str, f64)]) {
-        if items.is_empty() {
+        if items.is_empty() || !self.collector {
             return;
         }
         if let Ok(mut store) = self.store.lock() {
@@ -277,7 +315,9 @@ impl Drop for MonitorCore {
         if let Some(h) = self.handle.take() {
             let _ = h.join();
         }
-        if let Ok(mut store) = self.store.lock() {
+        if self.collector
+            && let Ok(mut store) = self.store.lock()
+        {
             let _ = store.flush();
         }
     }

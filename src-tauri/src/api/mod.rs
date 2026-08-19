@@ -89,7 +89,11 @@ impl TimeTraceApi {
             .parent()
             .map(|p| p.join("monitor.db"))
             .unwrap_or_else(|| PathBuf::from("monitor.db"));
-        let monitor_core = timetrace_core::MonitorCore::start(monitor_db);
+        // 只有租约持有者负责硬件/网络采样、共享内存发布和 monitor.db 写入；
+        // 已有独立监控进程时，完整版自动降级为只读跟随者。
+        let collector_lease = metrics::CollectorLease::acquire();
+        let monitor_core = timetrace_core::MonitorCore::start(monitor_db, collector_lease);
+        let is_collector = monitor_core.is_collector();
         let hardware = timetrace_core::HardwareMonitor::new();
         let temperature = timetrace_core::TemperatureMonitor::new();
         let net_apps = timetrace_core::NetAppMonitor::new();
@@ -102,7 +106,7 @@ impl TimeTraceApi {
             temperature: std::sync::Mutex::new(temperature),
             net_apps: std::sync::Mutex::new(net_apps),
             etw_sys: std::sync::Mutex::new(None),
-            metrics: metrics::MetricsPublisher::open(),
+            metrics: is_collector.then(metrics::MetricsPublisher::open).flatten(),
         };
         Ok(api)
     }

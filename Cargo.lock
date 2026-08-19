@@ -3896,7 +3896,7 @@ dependencies = [
 
 [[package]]
 name = "timetrace"
-version = "2.30.0"
+version = "2.31.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3923,6 +3923,7 @@ dependencies = [
  "aes-gcm",
  "chrono",
  "dirs",
+ "metrics",
  "rand",
  "rusqlite",
  "serde",
