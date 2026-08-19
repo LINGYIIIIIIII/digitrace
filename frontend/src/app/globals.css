@@ -67,7 +67,7 @@
   --chart-3: oklch(0.546 0.245 262.881);
   --chart-4: oklch(0.488 0.243 264.376);
   --chart-5: oklch(0.424 0.199 265.638);
-  --radius: 0.75rem;
+  --radius: 0.5rem;
   --sidebar: #ffffff;
   --sidebar-foreground: #111827;
   --sidebar-primary: #2f6df6;
@@ -79,10 +79,10 @@
   --mica-content-surface: color-mix(in srgb, var(--background) 75%, transparent);
   --mica-content-border: color-mix(in srgb, var(--border) 90%, transparent);
   /* UI 调试变量（UiTuner 面板可实时调整） */
-  --ui-radius: 16px;
-  --ui-gap: 16px;
-  --ui-card-pad: 12px;
-  --ui-title-size: 14px;
+  --ui-radius: 8px;
+  --ui-gap: 12px;
+  --ui-card-pad: 16px;
+  --ui-title-size: 13px;
 }
 
 @theme inline {

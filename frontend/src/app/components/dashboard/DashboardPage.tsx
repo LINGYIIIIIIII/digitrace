@@ -53,7 +53,7 @@ import {
 } from './dashboard-layout';
 import type { CardId, CardSize, DashboardLayout } from './dashboard-layout';
 
-type DateRangeKey = 'today' | 'yesterday' | 'week' | 'month';
+type DateRangeKey = 'today' | 'yesterday' | 'week' | 'month' | 'year';
 
 /** 日期范围边界按配置时区计算（今天/昨天/本周/本月）。 */
 function rangeFor(
@@ -73,7 +73,10 @@ function rangeFor(
     const monday = shiftDayStr(focus, -(wd - 1));
     return { start: monday, end: focus, focus };
   }
-  return { start: `${focus.slice(0, 7)}-01`, end: focus, focus };
+  if (key === 'month') {
+    return { start: `${focus.slice(0, 7)}-01`, end: focus, focus };
+  }
+  return { start: `${focus.slice(0, 4)}-01-01`, end: focus, focus };
 }
 
 function clsx(...parts: (string | false | undefined | null)[]): string {
@@ -346,10 +349,11 @@ export default function DashboardPage() {
       {/* 顶部：日期范围 + 编辑 */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-1.5">
-          {(['today', 'yesterday', 'week', 'month'] as DateRangeKey[]).map((key) => (
+          {(['today', 'yesterday', 'week', 'month', 'year'] as DateRangeKey[]).map((key) => (
             <button
               key={key}
               type="button"
+              aria-pressed={range === key}
               onClick={() => setRange(key)}
               className={clsx(
                 'rounded-full border px-3 py-1 text-xs font-medium transition-colors',

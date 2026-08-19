@@ -224,7 +224,7 @@ impl MetricsPublisher {
 
     /// 发布一帧快照。多写者（完整版 / 独立监控）并发安全：写前加互斥锁，
     /// seq 取现有值 +1（全局单调），读方据此检测更新。
-    pub fn publish(&mut self, mut snap: MetricsSnapshot) {
+    pub fn publish(&mut self, mut snap: MetricsSnapshot) -> MetricsSnapshot {
         unsafe {
             let lock_held = if !self.write_lock.is_null() {
                 WaitForSingleObject(self.write_lock, INFINITE) == 0
@@ -252,6 +252,7 @@ impl MetricsPublisher {
                 ReleaseMutex(self.write_lock);
             }
         }
+        snap
     }
 }
 

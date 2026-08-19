@@ -33,7 +33,7 @@ import { useTranslation } from 'react-i18next';
 import { BRAND } from '../lib/brand';
 import { applyFontFamily, applyThemeMode } from '../lib/appearance';
 import { useAppStore } from '../store/app-store';
-import { apiService } from '../services/api';
+import { apiService, isTauriRuntime } from '../services/api';
 import TitlebarZoom from './TitlebarZoom';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -587,7 +587,7 @@ export default function AppShell({
   // 窗口初始隐藏（visible: false）：前端就绪后显示，避免启动白框/透明框闪烁。
   // 「静默自启」（start_minimized）或关闭「启动显示主界面」时不显示窗口。
   useEffect(() => {
-    if (!startMinimized && (launchShowWindow ?? true)) {
+    if (isTauriRuntime() && !startMinimized && (launchShowWindow ?? true)) {
       void getCurrentWindow().show();
     }
   }, [startMinimized, launchShowWindow]);
@@ -606,7 +606,9 @@ export default function AppShell({
 
     const initializeWindowChrome = async () => {
       try {
-        const isWindows = /Windows/i.test(navigator.userAgent);
+        // 普通 Chrome 也会带 Windows User-Agent，但没有 Tauri 原生标题栏；
+        // 只有桌面桥接可用时才启用 Windows 窗口布局，避免 Demo 页面顶部错位。
+        const isWindows = isTauriRuntime() && /Windows/i.test(navigator.userAgent);
         if (disposed) return;
         setIsWindowsChrome(isWindows);
         if (!isWindows) {

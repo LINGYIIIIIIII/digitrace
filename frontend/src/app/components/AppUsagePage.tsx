@@ -15,6 +15,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { apiService } from '../services/api';
@@ -25,7 +26,7 @@ import { Card } from './ui/index';
 import AppIcon from './dashboard/AppIcon';
 import ChartTooltip, { formatAxisSeconds } from './dashboard/ChartTooltip';
 
-type RangeKey = 'today' | 'yesterday' | 'week' | 'month';
+type RangeKey = 'today' | 'yesterday' | 'week' | 'month' | 'year';
 
 const PIE_COLORS = [
   '#2f6df6',
@@ -60,17 +61,18 @@ function rangeFor(
     const wd = weekdayOf(focus) === 0 ? 7 : weekdayOf(focus);
     return { start: shiftDayStr(focus, -(wd - 1)), end: focus, focus };
   }
-  return { start: `${focus.slice(0, 7)}-01`, end: focus, focus };
+  if (key === 'month') return { start: `${focus.slice(0, 7)}-01`, end: focus, focus };
+  return { start: `${focus.slice(0, 4)}-01-01`, end: focus, focus };
 }
 
-function formatDuration(seconds: number): string {
-  if (!seconds || seconds <= 0) return '0 秒';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h} 小时 ${m} 分 ${s} 秒`;
-  if (m > 0) return `${m} 分 ${s} 秒`;
-  return `${s} 秒`;
+function formatDuration(seconds: number, t: TFunction): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const remainingSeconds = safeSeconds % 60;
+  if (hours > 0) return t('usage.durationHoursMinutesSeconds', { hours, minutes, seconds: remainingSeconds });
+  if (minutes > 0) return t('usage.durationMinutesSeconds', { minutes, seconds: remainingSeconds });
+  return t('usage.durationSeconds', { seconds: remainingSeconds });
 }
 
 export default function AppUsagePage() {
@@ -144,10 +146,11 @@ export default function AppUsagePage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-1.5">
-        {(['today', 'yesterday', 'week', 'month'] as RangeKey[]).map((key) => (
+        {(['today', 'yesterday', 'week', 'month', 'year'] as RangeKey[]).map((key) => (
           <button
             key={key}
             type="button"
+            aria-pressed={range === key}
             onClick={() => setRange(key)}
             className={
               'rounded-full border px-3 py-1 text-xs font-medium transition-colors ' +
@@ -186,7 +189,7 @@ export default function AppUsagePage() {
                     <YAxis tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} tickFormatter={formatAxisSeconds} width={48} />
                     <Tooltip
                       cursor={{ fill: 'rgba(47,109,246,0.06)' }}
-                      content={<ChartTooltip valueFormatter={(v) => formatDuration(Number(v))} />}
+                      content={<ChartTooltip valueFormatter={(v) => formatDuration(Number(v), t)} />}
                     />
                     <Bar dataKey="时长" fill="var(--chart-primary)" radius={[4, 4, 0, 0]} />
                   </BarChart>
@@ -210,7 +213,7 @@ export default function AppUsagePage() {
                           valueFormatter={(v) => {
                             const n = Number(v);
                             const pct = total > 0 ? Math.round((n / total) * 100) : 0;
-                            return `${formatDuration(n)} (${pct}%)`;
+                            return `${formatDuration(n, t)} (${pct}%)`;
                           }}
                         />
                       }
@@ -235,7 +238,7 @@ export default function AppUsagePage() {
                     content={
                       <ChartTooltip
                         labelFormatter={(h) => `${h} 时`}
-                        valueFormatter={(v) => formatDuration(Number(v))}
+                        valueFormatter={(v) => formatDuration(Number(v), t)}
                       />
                     }
                   />
@@ -250,7 +253,7 @@ export default function AppUsagePage() {
             <div className="border-b border-border/60 px-4 py-3 text-sm font-semibold">
               {t('usage.title')}
               <span className="ml-2 text-xs font-normal text-muted-foreground">
-                {t('usage.total')} {formatDuration(total)}
+                {t('usage.total')} {formatDuration(total, t)}
               </span>
             </div>
             <div className="p-3">
@@ -264,7 +267,7 @@ export default function AppUsagePage() {
                     >
                       <AppIcon exePath={app.exe_path} size={26} />
                       <span className="min-w-0 flex-1 truncate text-sm">{app.app_name}</span>
-                      <span className="text-xs tabular-nums text-muted-foreground">{formatDuration(app.active_seconds)}</span>
+                      <span className="text-xs tabular-nums text-muted-foreground">{formatDuration(app.active_seconds, t)}</span>
                       <span className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
                         <span
                           className="block h-full rounded-full bg-primary"
@@ -286,7 +289,7 @@ export default function AppUsagePage() {
                             ].map(([label, seconds]) => (
                               <div key={String(label)} className="min-w-0 rounded border border-border/60 px-2 py-1.5">
                                 <div className="truncate text-[11px] text-muted-foreground">{t(String(label))}</div>
-                                <div className="truncate text-xs font-semibold tabular-nums">{formatDuration(Number(seconds))}</div>
+                                <div className="truncate text-xs font-semibold tabular-nums">{formatDuration(Number(seconds), t)}</div>
                               </div>
                             ))}
                           </div>
@@ -300,7 +303,7 @@ export default function AppUsagePage() {
                                 <YAxis tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} tickFormatter={formatAxisSeconds} width={40} />
                                 <Tooltip
                                   cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}
-                                  content={<ChartTooltip valueFormatter={(v) => formatDuration(Number(v))} />}
+                                  content={<ChartTooltip valueFormatter={(v) => formatDuration(Number(v), t)} />}
                                 />
                                 <Line type="monotone" name={t('usage.activeLabel')} dataKey="v" stroke="var(--chart-primary)" dot={false} strokeWidth={1.5} />
                               </LineChart>
@@ -312,7 +315,7 @@ export default function AppUsagePage() {
                             {windows.map((w) => (
                               <div key={w.title} className="flex justify-between text-xs text-muted-foreground">
                                 <span className="min-w-0 truncate">{w.title}</span>
-                                <span className="ml-2 shrink-0 tabular-nums">{formatDuration(w.seconds)}</span>
+                                <span className="ml-2 shrink-0 tabular-nums">{formatDuration(w.seconds, t)}</span>
                               </div>
                             ))}
                           </div>

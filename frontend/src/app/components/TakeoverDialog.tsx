@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
-import { apiService } from '../services/api';
+import { apiService, isTauriRuntime } from '../services/api';
 import { useAppStore } from '../store/app-store';
 import { Button } from './ui/index';
 import { ToggleSwitch } from './ui/index';
@@ -39,6 +39,7 @@ export default function TakeoverDialog() {
   const [showWindow, setShowWindow] = useState(true);
 
   useEffect(() => {
+    if (!isTauriRuntime()) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listen<PendingTakeover>('takeover-pending', (event) => {

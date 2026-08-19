@@ -783,6 +783,8 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "metrics",
+ "serde",
+ "serde_json",
  "timetrace-core",
  "windows-sys 0.61.2",
 ]

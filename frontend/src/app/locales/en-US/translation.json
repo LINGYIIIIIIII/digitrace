@@ -52,7 +52,8 @@
       "today": "Today",
       "yesterday": "Yesterday",
       "week": "This week",
-      "month": "This month"
+      "month": "This month",
+      "year": "This year"
     },
     "edit": "Edit",
     "templateTitle": "Template",
@@ -149,6 +150,9 @@
     "title": "App usage",
     "total": "Total active",
     "loading": "Loading…",
+    "durationHoursMinutesSeconds": "{{hours}}h {{minutes}}m {{seconds}}s",
+    "durationMinutesSeconds": "{{minutes}}m {{seconds}}s",
+    "durationSeconds": "{{seconds}}s",
     "activeLabel": "Active time",
     "chart": {
       "bar": "Usage by app (top 10)",
@@ -428,6 +432,12 @@
       "empty": "No games yet. Click \"Rescan\" to auto-detect, or add one manually.",
       "today": "Today",
       "total": "Total",
+      "durationHoursMinutes": "{{hours}}h {{minutes}}m",
+      "durationMinutes": "{{minutes}}m",
+      "playing": "Running",
+      "sortBy": "Sort by",
+      "sortTotal": "Total time (longest first)",
+      "sortToday": "Today time (longest first)",
       "manualAdd": "Add game manually",
       "manualAddDescription": "Enter the game name and executable path (a bare exe filename like eldenring.exe also works).",
       "manualTitlePlaceholder": "Game name, e.g. Minecraft",

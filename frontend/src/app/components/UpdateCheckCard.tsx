@@ -4,7 +4,7 @@ import { CheckCircle2, Download, XCircle } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { listen } from '@tauri-apps/api/event';
-import { apiService } from '../services/api';
+import { apiService, isTauriRuntime } from '../services/api';
 import type { UpdateCheckDto, UpdateProgressDto } from '../types';
 import { Button } from './ui/index';
 
@@ -22,6 +22,7 @@ export function UpdateCheckCard() {
   const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!isTauriRuntime()) return;
     let disposed = false;
     const unlisteners: (() => void)[] = [];
     const setup = async () => {

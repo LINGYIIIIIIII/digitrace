@@ -16,6 +16,19 @@ digitrace-monitor --stop       # 通知运行中的实例退出
 - 与完整版并发运行安全：`metrics` 模块内部用命名互斥串行化写入，
   `seq` 读现有值 +1 全局单调，读取方据此检测更新。
 
+## 外部 UI 数据接口
+
+监控进程同时提供只读 Windows Named Pipe：
+
+```text
+\\.\pipe\DigitraceMetricsV1
+```
+
+每次客户端连接后，服务端返回一行 JSON 快照并关闭连接。管道为出站模式，
+客户端只能读取，不能向监控进程写入命令。`version` 当前为 `1`；没有传感器的
+温度、GPU 或功耗字段返回 `null`。DeskBox 等 C# 程序可以使用
+`NamedPipeClientStream(PipeDirection.In)` 每秒或每两秒轮询一次。
+
 ## 与精简版搭配
 
 `digitrace-lite-viewer.exe` 启动时若发现共享内存数据陈旧（完整版未运行），
@@ -28,5 +41,5 @@ digitrace-monitor --stop       # 通知运行中的实例退出
 cargo build --release -p digitrace-monitor
 ```
 
-依赖：仅 `timetrace-core`（采集）+ `metrics`（共享内存）+ `windows-sys`（Win32 原生 API）。
-无 UI、无 WebView，release 版约 400KB。
+依赖：`timetrace-core`（采集）+ `metrics`（共享内存）+ `serde_json`（Pipe 数据）+
+`windows-sys`（Win32 原生 API）。无 UI、无 WebView，当前 release 版约 1.5MiB。

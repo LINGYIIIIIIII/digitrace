@@ -7,11 +7,16 @@
 //! 用法：
 //! - `digitrace-monitor`（启动，无窗口常驻）
 //! - `digitrace-monitor --stop`（通知运行中的实例退出）
+//! - `\\.\pipe\DigitraceMetricsV1`（只读 JSON，一次连接返回一帧）
 //!
 //! 单实例：重复启动（无 `--stop`）时直接静默退出，不干扰已运行实例。
 
 #![cfg(windows)]
 #![windows_subsystem = "windows"]
+
+mod pipe;
+
+use std::sync::{Arc, Mutex};
 
 use timetrace_core::{HardwareMonitor, TemperatureMonitor, WindowsCollector};
 use windows_sys::Win32::Foundation::{
@@ -108,6 +113,9 @@ fn main() {
         return; // 共享内存不可用（目录不可写等），静默退出。
     };
 
+    let latest = Arc::new(Mutex::new(pipe::Snapshot::default()));
+    pipe::spawn(latest.clone());
+
     // ── 主采集循环：每秒一帧；stop 事件触发时退出 ──
     // 启动约 5 秒（各组件热身、SQLite 连接就绪）后收缩一次工作集：
     // 无界面常驻进程没有用户交互，把空闲代码页/缓存页还给系统，
@@ -144,7 +152,13 @@ fn main() {
             ..metrics::MetricsSnapshot::default()
         };
         snap.set_active_app(&foreground_app());
-        publisher.publish(snap);
+        let published = publisher.publish(snap);
+        if let Ok(mut latest) = latest.lock() {
+            *latest = pipe::Snapshot {
+                metrics: published,
+                gpu_power_watts: gpu_power,
+            };
+        }
 
         // 分钟级历史：按配置时区记录；时区每 60s 重读；每 60s 落盘一次。
         if last_tz_check.elapsed() >= std::time::Duration::from_secs(60) {
