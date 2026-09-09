@@ -1,4 +1,7 @@
 /target
+/target-blur/
+/target-verify/
+/outputs/
 *.db
 *.db-wal
 *.db-shm
@@ -11,4 +14,6 @@
 /dist/
 frontend/dist/
 frontend/.next/
+frontend/.next 111/
 frontend/node_modules/
+frontend/test-results/
