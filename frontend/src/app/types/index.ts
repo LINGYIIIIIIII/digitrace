@@ -212,6 +212,16 @@ export interface GameEntryDto {
   source: string;
   today_seconds: number;
   total_seconds: number;
+  /** 是否被关注（今日启动/时长置顶显示）。 */
+  watched: boolean;
+}
+
+/** 关注游戏：今日是否启动 + 今日游玩秒数。 */
+export interface WatchedGameDto {
+  title: string;
+  exe_path: string;
+  launched_today: boolean;
+  today_seconds: number;
 }
 
 export interface GameLibraryResultDto {

@@ -35,6 +35,7 @@ import {
   NetworkStatsCard,
   StatsCard,
   TempAggCard,
+  WatchedGamesCard,
 } from './cards';
 import {
   insertCardBefore,
@@ -318,6 +319,8 @@ export default function DashboardPage() {
           return <HealthCard />;
         case 'games':
           return <GamesCard size={size} />;
+        case 'watchedGames':
+          return <WatchedGamesCard size={size} />;
         case 'durationAgg':
           return <DurationAggCard data={data} hourly={hourly} size={size} tickable={liveTickable} />;
         case 'netAgg':

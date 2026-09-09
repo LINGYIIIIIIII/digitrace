@@ -161,13 +161,45 @@ unsafe fn icon_to_rgba(hicon: *mut std::ffi::c_void) -> Option<(i32, i32, Vec<u8
             std::ptr::null_mut(),
             0,
         );
+        if dib.is_null() {
+            DeleteDC(dc);
+            DeleteObject(hbm);
+            if !icon_info.hbmMask.is_null() {
+                DeleteObject(icon_info.hbmMask);
+            }
+            DestroyIcon(hicon);
+            return None;
+        }
+
+        let mut color_rows = 0;
         if !dib.is_null() {
             let old = SelectObject(dc, dib as HGDIOBJ);
-            GetDIBits(dc, hbm, 0, h as u32, dib_bits, &mut bmi, DIB_RGB_COLORS);
+            color_rows = GetDIBits(dc, hbm, 0, h as u32, dib_bits, &mut bmi, DIB_RGB_COLORS);
             SelectObject(dc, old);
-            std::ptr::copy_nonoverlapping(dib_bits as *const u8, pixels.as_mut_ptr(), pixels.len());
+            if color_rows == h {
+                std::ptr::copy_nonoverlapping(
+                    dib_bits as *const u8,
+                    pixels.as_mut_ptr(),
+                    pixels.len(),
+                );
+            }
             DeleteObject(dib);
         }
+
+        if color_rows != h {
+            DeleteDC(dc);
+            DeleteObject(hbm);
+            if !icon_info.hbmMask.is_null() {
+                DeleteObject(icon_info.hbmMask);
+            }
+            DestroyIcon(hicon);
+            return None;
+        }
+
+        // Older icons (and many shell-provided icons) have an all-zero alpha
+        // channel in hbmColor. Their transparency is encoded in the AND
+        // portion of hbmMask instead, so decode that mask before releasing it.
+        let mask_alpha = read_mask_alpha(dc, icon_info.hbmMask, w, h);
 
         DeleteDC(dc);
         DeleteObject(hbm);
@@ -176,19 +208,104 @@ unsafe fn icon_to_rgba(hicon: *mut std::ffi::c_void) -> Option<(i32, i32, Vec<u8
         }
         DestroyIcon(hicon);
 
-        // BGRA → RGBA premultiplied
+        // Canvas ImageData expects straight (non-premultiplied) RGBA. Windows
+        // stores the color bitmap as BGRA; preserve its channels as-is and
+        // only fall back to the monochrome mask when the alpha channel is
+        // unavailable (all zero).
+        let has_alpha = pixels.chunks_exact(4).any(|px| px[3] != 0);
         let mut rgba = Vec::with_capacity(pixels.len());
-        for px in pixels.chunks_exact(4) {
-            let (b, g, r, a) = (px[0], px[1], px[2], px[3]);
-            let af = a as f32 / 255.0;
-            rgba.push((r as f32 * af) as u8);
-            rgba.push((g as f32 * af) as u8);
-            rgba.push((b as f32 * af) as u8);
+        for (index, px) in pixels.chunks_exact(4).enumerate() {
+            let (b, g, r) = (px[0], px[1], px[2]);
+            let a = if has_alpha {
+                px[3]
+            } else {
+                mask_alpha
+                    .as_ref()
+                    .and_then(|alpha| alpha.get(index).copied())
+                    .unwrap_or(255)
+            };
+            rgba.push(r);
+            rgba.push(g);
+            rgba.push(b);
             rgba.push(a);
         }
 
         Some((w, h, rgba))
     }
+}
+
+/// Read the AND mask from an ICONINFO monochrome bitmap and return one alpha
+/// byte per color pixel. The mask bitmap is normally two icon heights tall;
+/// only its first (AND) plane controls transparency.
+unsafe fn read_mask_alpha(
+    dc: *mut std::ffi::c_void,
+    hbm_mask: *mut std::ffi::c_void,
+    width: i32,
+    height: i32,
+) -> Option<Vec<u8>> {
+    if hbm_mask.is_null() {
+        return None;
+    }
+
+    let mut mask_bitmap: BITMAP = mem::zeroed();
+    if GetObjectW(
+        hbm_mask,
+        mem::size_of::<BITMAP>() as i32,
+        &mut mask_bitmap as *mut _ as *mut _,
+    ) == 0
+        || mask_bitmap.bmWidth < width
+        || mask_bitmap.bmHeight <= 0
+    {
+        return None;
+    }
+
+    let mask_height = mask_bitmap.bmHeight;
+    let and_height = if mask_height >= height.saturating_mul(2) {
+        height
+    } else {
+        // Some modern icons expose only the AND plane (height == icon height).
+        mask_height.min(height)
+    };
+    if and_height == 0 {
+        return None;
+    }
+
+    // A 1bpp DIB scanline is padded to a 4-byte boundary.
+    let stride = ((width + 31) / 32) * 4;
+    let mut bits = vec![0u8; (stride * mask_height) as usize];
+    let mut bmi: BITMAPINFO = mem::zeroed();
+    bmi.bmiHeader = BITMAPINFOHEADER {
+        biSize: mem::size_of::<BITMAPINFOHEADER>() as u32,
+        biWidth: width,
+        biHeight: -mask_height,
+        biPlanes: 1,
+        biBitCount: 1,
+        biCompression: BI_RGB,
+        ..Default::default()
+    };
+    let rows = GetDIBits(
+        dc,
+        hbm_mask,
+        0,
+        mask_height as u32,
+        bits.as_mut_ptr() as *mut std::ffi::c_void,
+        &mut bmi,
+        DIB_RGB_COLORS,
+    );
+    if rows != mask_height {
+        return None;
+    }
+
+    let mut alpha = vec![255u8; (width * height) as usize];
+    for y in 0..and_height {
+        for x in 0..width {
+            let byte = bits[(y * stride + x / 8) as usize];
+            if byte & (0x80 >> (x % 8)) != 0 {
+                alpha[(y * width + x) as usize] = 0;
+            }
+        }
+    }
+    Some(alpha)
 }
 
 #[cfg(test)]
@@ -208,7 +325,10 @@ mod tests {
             if let Some((w, h, rgba)) = extract_icon_rgba(p) {
                 eprintln!("OK   {:55} -> {}x{}", p, w, h);
                 assert!(w > 0 && h > 0);
-                assert!(!rgba.is_empty());
+                assert_eq!(rgba.len(), (w * h * 4) as usize);
+                assert!(rgba.chunks_exact(4).any(|pixel| pixel[3] != 0));
+                let first = &rgba[..4];
+                assert!(rgba.chunks_exact(4).any(|pixel| pixel != first));
                 ok += 1;
             } else {
                 eprintln!("FAIL {:55}", p);

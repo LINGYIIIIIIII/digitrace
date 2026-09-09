@@ -3,7 +3,8 @@
 //! 不修改写路径、不新增索引列：统计在 Rust 侧解密后完成，
 //! 今天/本周/本月毫秒级；全量统计建议放后台线程。
 
-use chrono::{Local, NaiveDate};
+use chrono::{Datelike, Duration, Local, NaiveDate};
+use std::collections::HashMap;
 
 use crate::contracts::{DataStore, GameRow};
 
@@ -13,6 +14,56 @@ pub struct GameStat {
     pub title: String,
     /// 活跃秒数（不含 idle）。
     pub seconds: i64,
+}
+
+/// 游戏库所需的五个周期统计。一次读取历史会话后在内存中完成全部聚合。
+#[derive(Debug, Default)]
+pub struct GameStatsPeriods {
+    pub today: HashMap<String, i64>,
+    pub week: HashMap<String, i64>,
+    pub month: HashMap<String, i64>,
+    pub year: HashMap<String, i64>,
+    pub total: HashMap<String, i64>,
+}
+
+/// 一次读取从记录开始日至今日的会话，并同时聚合日/周/月/年/累计时长。
+pub fn game_stats_periods(db: &dyn DataStore, games: &[GameRow]) -> GameStatsPeriods {
+    let today = Local::now().date_naive();
+    let week = today - Duration::days(today.weekday().num_days_from_monday() as i64);
+    let month = NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today);
+    let year = NaiveDate::from_ymd_opt(today.year(), 1, 1).unwrap_or(today);
+    let total = db
+        .recording_started_at()
+        .map(|t| t.date_naive())
+        .unwrap_or(year);
+    let sessions = db.get_sessions_by_range(total, today);
+    let mut out = GameStatsPeriods::default();
+    for session in sessions {
+        if session.is_idle || session.duration_secs.unwrap_or(0) <= 0 {
+            continue;
+        }
+        let Some(game) = games
+            .iter()
+            .find(|g| crate::games::game_row_matches(g, &session.app_path, &session.app_name))
+        else {
+            continue;
+        };
+        let seconds = session.duration_secs.unwrap_or(0);
+        *out.total.entry(game.title.clone()).or_default() += seconds;
+        if session.date >= year {
+            *out.year.entry(game.title.clone()).or_default() += seconds;
+        }
+        if session.date >= month {
+            *out.month.entry(game.title.clone()).or_default() += seconds;
+        }
+        if session.date >= week {
+            *out.week.entry(game.title.clone()).or_default() += seconds;
+        }
+        if session.date == today {
+            *out.today.entry(game.title.clone()).or_default() += seconds;
+        }
+    }
+    out
 }
 
 /// 日期范围内每个游戏的活跃秒数（降序）。
@@ -50,6 +101,27 @@ pub fn game_stats_in_range(
 pub fn game_stats_today(db: &dyn DataStore, games: &[GameRow]) -> Vec<GameStat> {
     let today = Local::now().date_naive();
     game_stats_in_range(db, games, today, today)
+}
+
+/// 本周（周一至今天）游戏时长统计。
+pub fn game_stats_week(db: &dyn DataStore, games: &[GameRow]) -> Vec<GameStat> {
+    let today = Local::now().date_naive();
+    let start = today - Duration::days(today.weekday().num_days_from_monday() as i64);
+    game_stats_in_range(db, games, start, today)
+}
+
+/// 本月（自然月初至今天）游戏时长统计。
+pub fn game_stats_month(db: &dyn DataStore, games: &[GameRow]) -> Vec<GameStat> {
+    let today = Local::now().date_naive();
+    let start = NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today);
+    game_stats_in_range(db, games, start, today)
+}
+
+/// 本年（自然年初至今天）游戏时长统计。
+pub fn game_stats_year(db: &dyn DataStore, games: &[GameRow]) -> Vec<GameStat> {
+    let today = Local::now().date_naive();
+    let start = NaiveDate::from_ymd_opt(today.year(), 1, 1).unwrap_or(today);
+    game_stats_in_range(db, games, start, today)
 }
 
 /// 全部历史游戏时长统计（供「总时长」列；数据量大时放后台线程）。
@@ -146,6 +218,7 @@ mod tests {
                 app_name: "eldenring".into(),
                 source: "steam".into(),
                 appid: None,
+                watched: false,
             },
             GameRow {
                 id: 2,
@@ -154,6 +227,7 @@ mod tests {
                 app_name: "starrail".into(),
                 source: "known".into(),
                 appid: None,
+                watched: false,
             },
         ];
 
@@ -180,6 +254,7 @@ mod tests {
             app_name: "a".into(),
             source: "manual".into(),
             appid: None,
+            watched: false,
         }];
         assert!(current_game(&games, &db).is_some());
     }
@@ -198,6 +273,7 @@ mod tests {
             app_name: "a".into(),
             source: "manual".into(),
             appid: None,
+            watched: false,
         }];
         assert!(current_game(&games, &db).is_none());
     }
@@ -215,6 +291,7 @@ mod tests {
             app_name: "a".into(),
             source: "manual".into(),
             appid: None,
+            watched: false,
         }];
         assert!(current_game(&games, &db).is_none());
     }

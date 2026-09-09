@@ -6,8 +6,6 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::games::KNOWN_GAMES;
-
 /// 扫描发现的一个游戏（尚未入库）。
 #[derive(Debug, Clone)]
 pub struct FoundGame {
@@ -27,35 +25,134 @@ pub struct FoundGame {
 pub fn scan_all_platforms() -> Vec<FoundGame> {
     let mut out = Vec::new();
     out.extend(scan_steam_games());
+    out.extend(scan_steam_shortcuts());
     out.extend(scan_epic_games());
     out.extend(scan_wegame_games());
     out.extend(scan_mihoyo_games());
-    out.extend(known_games());
     dedupe(out)
+}
+
+// ── Steam 非游戏快捷方式（shortcuts.vdf）───────────────────────────
+//
+// 玩家常把米哈游等非 Steam 游戏通过 Steam 添加为快捷方式，启动 exe 记录在
+// userdata\<id>\config\shortcuts.vdf。这是最权威的「启动 exe」来源，且能
+// 精确对应到那款游戏（图标用真正的启动 exe，而非目录里随便一个）。
+
+/// 读取 Steam 各 userdata 的 shortcuts.vdf，返回「游戏名 → 启动 exe 路径」。
+/// 只保留「已知游戏 exe 名」命中的，避免把无关快捷方式塞进游戏库。
+fn scan_steam_shortcuts() -> Vec<FoundGame> {
+    use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
+    let Some(root) = (|| {
+        if let Ok(steam) = RegKey::predef(HKEY_CURRENT_USER).open_subkey("Software\\Valve\\Steam")
+            && let Ok(p) = steam.get_value::<String, _>("SteamPath")
+            && !p.is_empty()
+        {
+            return Some(PathBuf::from(p));
+        }
+        None
+    })() else {
+        return Vec::new();
+    };
+    let userdata = root.join("userdata");
+    let Ok(entries) = std::fs::read_dir(&userdata) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let vdf = entry.path().join("config").join("shortcuts.vdf");
+        let Ok(bytes) = std::fs::read(&vdf) else {
+            continue;
+        };
+        for exe in parse_shortcut_exes(&bytes) {
+            let Some(g) = shortcut_to_game(&exe) else {
+                continue;
+            };
+            let key = g.exe_path.to_lowercase();
+            if seen.insert(key) {
+                out.push(g);
+            }
+        }
+    }
+    out
+}
+
+/// 从 shortcuts.vdf 的字节里提取所有 `Exe` 值（带引号的路径）。二进制 VDF 里
+/// Exe 字段值形如 `Exe\x00"路径"`，这里扫描 `Exe\x00` 后的引号字符串。
+fn parse_shortcut_exes(bytes: &[u8]) -> Vec<String> {
+    let mut out = Vec::new();
+    let needle = b"Exe\0";
+    let mut i = 0;
+    while i + needle.len() <= bytes.len() {
+        if &bytes[i..i + needle.len()] == needle {
+            let mut j = i + needle.len();
+            // 跳过多余的字段分隔字节直到遇到引号
+            while j < bytes.len() && bytes[j] != b'"' {
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b'"' {
+                j += 1;
+                let start = j;
+                while j < bytes.len() && bytes[j] != b'"' {
+                    j += 1;
+                }
+                if j < bytes.len()
+                    && bytes[j] == b'"'
+                    && let Ok(s) = std::str::from_utf8(&bytes[start..j])
+                {
+                    out.push(s.to_string());
+                }
+                i = j + 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+/// 把一个启动 exe 路径映射成 FoundGame：exe 文件名 stem 命中已知游戏才返回。
+fn shortcut_to_game(exe: &str) -> Option<FoundGame> {
+    let stem = crate::games::exe_stem(exe).to_lowercase();
+    // 优先米哈游（用 MIHOYO_EXE_TITLES 映射可读中文名），再走通用 KNOWN_GAMES。
+    let title = MIHOYO_EXE_TITLES
+        .iter()
+        .find(|(k, _)| stem.contains(k))
+        .map(|(_, t)| (*t).to_string())
+        .or_else(|| {
+            crate::games::KNOWN_GAMES
+                .iter()
+                .find(|(k, _)| stem.contains(k))
+                .map(|(_, t)| (*t).to_string())
+        })?;
+    Some(FoundGame {
+        title,
+        exe_path: exe.to_string(),
+        app_name: stem,
+        source: "steam-shortcut",
+        appid: None,
+    })
+}
+
+/// 归一化路径用于比较：统一小写 + `/`→`\` + 去尾部斜杠。
+/// 避免 Windows 下 `C:\X` 与 `c:/x` 这种同路径不同写法被当成两条。
+pub fn normalize_path(p: &str) -> String {
+    p.replace('/', "\\").trim_end_matches('\\').to_lowercase()
 }
 
 fn dedupe(games: Vec<FoundGame>) -> Vec<FoundGame> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     for g in games {
-        if seen.insert(g.exe_path.to_lowercase()) {
+        if seen.insert(normalize_path(&g.exe_path)) {
             out.push(g);
         }
     }
     out
-}
-
-fn known_games() -> Vec<FoundGame> {
-    KNOWN_GAMES
-        .iter()
-        .map(|(stem, title)| FoundGame {
-            title: (*title).to_string(),
-            exe_path: (*stem).to_string(),
-            app_name: (*stem).to_string(),
-            source: "known",
-            appid: None,
-        })
-        .collect()
 }
 
 // ── Steam ────────────────────────────────────────────────────────
@@ -133,6 +230,12 @@ pub fn scan_steam_games() -> Vec<FoundGame> {
     };
     let mut out = Vec::new();
     for (title, appid, installdir) in steam_installed(&root) {
+        // 跳过 Steam 上的非游戏应用/工具（如 Wallpaper Engine 动态壁纸），
+        // 它们会往游戏库塞大量无关 exe（applicationwallpaperinject32 等）。
+        let il = installdir.to_lowercase();
+        if NON_GAME_STEAM_DIRS.iter().any(|d| il.contains(d)) {
+            continue;
+        }
         // 每个库根目录下 common/<installdir> 都可能是游戏位置
         let mut found_any = false;
         let mut libs = vec![root.to_path_buf()];
@@ -149,7 +252,24 @@ pub fn scan_steam_games() -> Vec<FoundGame> {
         }
         for lib in libs {
             let common = lib.join("steamapps").join("common").join(&installdir);
-            for exe in scan_exes(&common, 0) {
+            // 只取一个「主 exe」而非目录下全部 exe：很多游戏目录会混入
+            // helper/引擎组件等额外 exe，全收会导致游戏库出现大量同名/无关条目。
+            // 优先选文件名与 installdir 匹配的 exe（更接近真正启动的主程序），
+            // 否则回退到扫描到的第一个。
+            let exes = scan_exes(&common, 0);
+            let instal = installdir.to_lowercase();
+            let chosen = exes
+                .iter()
+                .find(|e| {
+                    let stem = e
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_lowercase())
+                        .unwrap_or_default();
+                    stem.contains(&instal) || instal.contains(&stem)
+                })
+                .or_else(|| exes.first())
+                .cloned();
+            if let Some(exe) = chosen {
                 out.push(FoundGame {
                     title: title.clone(),
                     exe_path: exe.to_string_lossy().into_owned(),
@@ -298,7 +418,9 @@ pub fn scan_wegame_games() -> Vec<FoundGame> {
         }
         let dir = entry.path();
         let title = entry.file_name().to_string_lossy().into_owned();
-        for exe in scan_exes(&dir, 0) {
+        // 每个 WeGame 游戏目录只取一个主 exe，避免把目录里 helper/wallpaper 等
+        // 额外 exe 全部塞进游戏库造成重复/无关条目。
+        if let Some(exe) = scan_exes(&dir, 0).into_iter().next() {
             out.push(FoundGame {
                 title: title.clone(),
                 exe_path: exe.to_string_lossy().into_owned(),
@@ -347,9 +469,124 @@ fn wegame_root() -> Option<PathBuf> {
     None
 }
 
-// ── 米哈游（注册表尽力而为；真正兜底是 KNOWN_GAMES）─────────────
+// ── 米哈游（磁盘目录扫描 + 注册表兜底）──────────────────────────────────
+//
+// 米哈游/崩铁等游戏的安装路径并不总写入可读的注册表值（很多只留 SDK 缓存），
+// 且启动器版本各异。因此以「扫描已知位置 + 常见安装目录」为主：
+//  1) 各盘符根目录、Program Files(x86) 下的一级目录，匹配米哈游游戏名特征；
+//  2) 在这些目录里递归找游戏 exe（GenshinImpact/StarRail/ZenlessZoneZero/BH3 等）；
+//  3) 注册表 HKCU\Software\miHoYo\logkey 的安装路径兜底。
+// 所有 I/O 全容错，绝不 panic。
+
+/// 米哈游已知游戏：exe 文件名子串 → 显示名。
+const MIHOYO_EXE_TITLES: &[(&str, &str)] = &[
+    ("genshinimpact", "原神"),
+    ("yuanshen", "原神"),
+    ("starrail", "崩坏：星穹铁道"),
+    ("zenlesszonezero", "绝区零"),
+    ("bh3", "崩坏3"),
+    ("bh3.exe", "崩坏3"),
+];
+
+/// 米哈游相关目录名特征（用于定位安装/启动器目录）。
+const MIHOYO_DIR_FEATURES: &[&str] = &[
+    "genshin",
+    "star rail",
+    "starrail",
+    "zenless",
+    "mihoyo",
+    "hoyoplay",
+    "hoyo",
+    "原神",
+    "崩坏",
+    "绝区零",
+    "honkai",
+];
+
+/// 常见安装根：盘符根目录 + Program Files(x86)。
+fn mihoyo_search_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    // 盘符必须带尾部反斜杠（"D:\"），否则 PathBuf::from("D:") 是相对路径，
+    // 导致 read_dir 出的路径畸形（如 "D:Star Rail Game"，缺分隔符），
+    // 与 shortcuts.vdf 的 "D:\Star Rail Game" 无法归一化合并 → 星穹铁道重复。
+    for drive in ["C:\\", "D:\\", "E:\\", "F:\\", "G:\\"] {
+        if !Path::new(drive).exists() {
+            continue;
+        }
+        roots.push(PathBuf::from(drive));
+        roots.push(PathBuf::from(drive).join("Program Files"));
+        roots.push(PathBuf::from(drive).join("Program Files (x86)"));
+        // 米哈游启动器（HoYoPlay）把游戏装到 <Program Files>\miHoYo Launcher\games\
+        // 下（每个游戏一个子目录，如 ZenlessZoneZero Game / Genshin Impact Game）。
+        // 需要把这个父级加入扫描根，才能发现 C 盘的这两款游戏。
+        roots.push(
+            PathBuf::from(drive)
+                .join("Program Files")
+                .join("miHoYo Launcher")
+                .join("games"),
+        );
+        roots.push(
+            PathBuf::from(drive)
+                .join("Program Files (x86)")
+                .join("miHoYo Launcher")
+                .join("games"),
+        );
+    }
+    roots
+}
 
 pub fn scan_mihoyo_games() -> Vec<FoundGame> {
+    let mut out = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    // 1) 扫描常见安装根下符合特征的一级目录，递归找游戏 exe。
+    for root in mihoyo_search_roots() {
+        let Ok(entries) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(ft) = entry.file_type() else { continue };
+            if !ft.is_dir() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            if !MIHOYO_DIR_FEATURES.iter().any(|f| name.contains(f)) {
+                continue;
+            }
+            collect_mihoyo_exe(entry.path(), &mut seen, &mut out);
+        }
+    }
+
+    // 2) 注册表兜底：HKCU\Software\miHoYo\<logkey> 的安装路径。
+    collect_from_registry(&mut seen, &mut out);
+
+    out
+}
+
+/// 在一个可能包含米哈游游戏的目录里递归找游戏 exe（限深，跳过非游戏子目录）。
+fn collect_mihoyo_exe(dir: PathBuf, seen: &mut HashSet<String>, out: &mut Vec<FoundGame>) {
+    for exe in scan_exes(&dir, 0) {
+        let stem = exe
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if let Some((_, title)) = MIHOYO_EXE_TITLES.iter().find(|(k, _)| stem.contains(k)) {
+            let exe_str = exe.to_string_lossy().into_owned();
+            if seen.insert(exe_str.to_lowercase()) {
+                out.push(FoundGame {
+                    title: (*title).to_string(),
+                    exe_path: exe_str,
+                    app_name: stem.clone(),
+                    source: "mihoyo",
+                    appid: None,
+                });
+            }
+        }
+    }
+}
+
+/// 注册表兜底：读各游戏子键下的安装路径键。
+fn collect_from_registry(seen: &mut HashSet<String>, out: &mut Vec<FoundGame>) {
     use winreg::RegKey;
     use winreg::enums::HKEY_CURRENT_USER;
     let attempts: &[(&str, &str)] = &[
@@ -357,10 +594,10 @@ pub fn scan_mihoyo_games() -> Vec<FoundGame> {
         ("Star Rail", "崩坏：星穹铁道"),
         ("ZenlessZoneZero", "绝区零"),
         ("BH3", "崩坏3"),
+        ("HYP", "崩坏：星穹铁道"),
     ];
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let mut out = Vec::new();
-    for (sub, title) in attempts {
+    for (sub, _) in attempts {
         let key_path = format!("Software\\miHoYo\\{sub}");
         let Ok(key) = hkcu.open_subkey(&key_path) else {
             continue;
@@ -373,35 +610,14 @@ pub fn scan_mihoyo_games() -> Vec<FoundGame> {
                 continue;
             }
             let dir = PathBuf::from(&p);
-            if let Some(exe_path) = find_mihoyo_exe(&dir) {
-                out.push(FoundGame {
-                    title: (*title).to_string(),
-                    exe_path,
-                    app_name: String::new(),
-                    source: "mihoyo",
-                    appid: None,
-                });
+            let mut tmp = Vec::new();
+            collect_mihoyo_exe(dir, seen, &mut tmp);
+            for g in tmp {
+                out.push(g);
             }
             break;
         }
     }
-    out
-}
-
-fn find_mihoyo_exe(dir: &Path) -> Option<String> {
-    for exe in scan_exes(dir, 0) {
-        let stem = exe
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_lowercase())
-            .unwrap_or_default();
-        if ["genshinimpact", "starrail", "zenlesszonezero", "bh3"]
-            .iter()
-            .any(|k| stem.contains(k))
-        {
-            return Some(exe.to_string_lossy().into_owned());
-        }
-    }
-    None
 }
 
 // ── 通用 exe 扫描 ────────────────────────────────────────────────
@@ -420,6 +636,39 @@ const SKIP_DIRS: &[&str] = &[
     "ue_5",
     "bins",
     "crashreport",
+];
+
+/// Steam 安装目录里的非游戏应用（壁纸/工具/运行库），跳过不当作游戏。
+const NON_GAME_STEAM_DIRS: &[&str] = &[
+    "wallpaper_engine",
+    "wallpaper engine",
+    "steamworks shared",
+    "steamworks common redistributables",
+    "steam controller configs",
+];
+
+/// 非游戏/工具类 exe 文件名（小写）黑名单：扫描时排除。
+/// 这些常出现在游戏目录里，若被当主 exe 会造成图标/启动 exe 错误
+/// （如 createdump/crashpad 是崩溃处理器，BEService 是反作弊服务）。
+const NON_GAME_EXES: &[&str] = &[
+    "crashpad_handler",
+    "crashpad_uploader",
+    "createdump",
+    "crash_uploader",
+    "crashreport",
+    "unitycrashhandler64",
+    "crumble",
+    "beservice_x64",
+    "winmtr",
+    "msedgewebview2",
+    "dxsetup",
+    "vcredist",
+    "steamcmd",
+    "steamworks",
+    "setup",
+    "uninstall",
+    "unins000",
+    "installermessage",
 ];
 
 /// 递归收集目录下的 .exe 文件（限深度；跳过常见非游戏目录）。
@@ -449,6 +698,11 @@ pub fn scan_exes(dir: &Path, depth: usize) -> Vec<PathBuf> {
                 .map(|e| e.eq_ignore_ascii_case("exe"))
                 .unwrap_or(false)
         {
+            let stem = entry.file_name().to_string_lossy().to_lowercase();
+            // 排除崩溃处理器/反作弊/安装器等非游戏 exe，避免被当成主 exe。
+            if NON_GAME_EXES.iter().any(|n| stem.contains(n)) {
+                continue;
+            }
             out.push(path);
         }
     }
@@ -458,6 +712,83 @@ pub fn scan_exes(dir: &Path, depth: usize) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn collect_mihoyo_exe_finds_star_rail_dir() {
+        // 模拟 D:\Star Rail Game\StarRail.exe 这类自定义安装目录。
+        let dir = std::env::temp_dir().join(format!("tt_mihoyo_sr_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("StarRail.exe");
+        std::fs::write(&exe, b"MZ fake").unwrap();
+
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        collect_mihoyo_exe(dir.clone(), &mut seen, &mut out);
+        assert_eq!(out.len(), 1, "应发现一个星穹铁道条目");
+        assert_eq!(out[0].title, "崩坏：星穹铁道");
+        assert!(out[0].exe_path.ends_with("StarRail.exe"));
+        assert_eq!(out[0].source, "mihoyo");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn collect_mihoyo_exe_finds_yuanshen_and_zenless() {
+        // 模拟 miHoYo Launcher 下的两个游戏目录：exe 名分别是
+        // YuanShen.exe（原神）与 ZenlessZoneZero.exe（绝区零）。
+        let base = std::env::temp_dir().join(format!("tt_mihoyo_hy_{}", std::process::id()));
+        let ys = base.join("Genshin Impact Game");
+        std::fs::create_dir_all(&ys).unwrap();
+        std::fs::write(ys.join("YuanShen.exe"), b"MZ").unwrap();
+        let zz = base.join("ZenlessZoneZero Game");
+        std::fs::create_dir_all(&zz).unwrap();
+        std::fs::write(zz.join("ZenlessZoneZero.exe"), b"MZ").unwrap();
+
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        collect_mihoyo_exe(base.clone(), &mut seen, &mut out);
+        let titles: Vec<&str> = out.iter().map(|g| g.title.as_str()).collect();
+        assert!(titles.contains(&"原神"), "应发现原神，实际: {titles:?}");
+        assert!(titles.contains(&"绝区零"), "应发现绝区零，实际: {titles:?}");
+        assert_eq!(out.len(), 2, "应有两条米哈游条目，实际: {titles:?}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn collect_mihoyo_exe_skips_non_game_exe() {
+        let dir = std::env::temp_dir().join(format!("tt_mihoyo_non_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("launcher.exe"), b"MZ").unwrap();
+
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        collect_mihoyo_exe(dir.clone(), &mut seen, &mut out);
+        assert_eq!(out.len(), 0, "launcher.exe 不应被当作游戏");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parse_shortcut_exes_extracts_paths() {
+        // 模拟 shortcuts.vdf 里的 Exe 字段字节：`Exe\0"路径"\0`。
+        let bytes = b"appid\0\x01\x02\x03\x04AppName\0Zenless\0Exe\0\"C:\\Program Files\\miHoYo Launcher\\games\\ZenlessZoneZero Game\\ZenlessZoneZero.exe\"\0StartDir\0x\0";
+        let exes = parse_shortcut_exes(bytes);
+        assert_eq!(exes.len(), 1);
+        assert!(exes[0].ends_with("ZenlessZoneZero.exe"));
+    }
+
+    #[test]
+    fn shortcut_to_game_maps_mihoyo() {
+        let g = shortcut_to_game(
+            r"C:\Program Files\miHoYo Launcher\games\Genshin Impact Game\YuanShen.exe",
+        )
+        .unwrap();
+        assert_eq!(g.title, "原神");
+        assert_eq!(g.source, "steam-shortcut");
+        let g2 = shortcut_to_game(r"D:\Star Rail Game\StarRail.exe").unwrap();
+        assert_eq!(g2.title, "崩坏：星穹铁道");
+        // 无关 exe 不应命中
+        assert!(shortcut_to_game(r"C:\Tools\random_tool.exe").is_none());
+    }
 
     #[test]
     fn vdf_pairs_extract_keys() {
@@ -559,5 +890,49 @@ mod tests {
         let out = dedupe(games);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].title, "A");
+    }
+
+    #[test]
+    fn dedupe_normalizes_separator_and_case() {
+        // Windows 同路径可能以 `C:\X`、`c:/X`、`C:\x` 等不同写法出现，
+        // 归一化（小写 + `/`→`\` + 去尾斜杠）后应合并为一条。
+        let games = vec![
+            FoundGame {
+                title: "G1".into(),
+                exe_path:
+                    r"C:\Program Files\miHoYo Launcher\games\Genshin Impact Game\YuanShen.exe"
+                        .into(),
+                app_name: String::new(),
+                source: "mihoyo",
+                appid: None,
+            },
+            FoundGame {
+                title: "G2".into(),
+                exe_path:
+                    r"c:/program files/miHoYo Launcher/games/Genshin Impact Game/YuanShen.exe"
+                        .into(),
+                app_name: String::new(),
+                source: "steam-shortcut",
+                appid: None,
+            },
+        ];
+        let out = dedupe(games);
+        assert_eq!(out.len(), 1, "大小写与分隔符不同应合并为一条");
+    }
+
+    #[test]
+    fn scan_exes_skips_non_game_exes() {
+        let dir = std::env::temp_dir().join(format!("tt_exe_filter_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("createdump.exe"), b"MZ").unwrap();
+        std::fs::write(dir.join("crashpad_handler.exe"), b"MZ").unwrap();
+        std::fs::write(dir.join("Game.exe"), b"MZ").unwrap();
+        let exes = scan_exes(&dir, 0);
+        let names: Vec<String> = exes
+            .iter()
+            .map(|p| p.file_stem().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["Game".to_string()], "应只保留游戏主 exe");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -77,14 +77,7 @@ export default function AppIcon({ exePath, size = 24 }: { exePath: string; size?
       />
     );
   }
-  return (
-    <img
-      src={src}
-      width={size}
-      height={size}
-      alt=""
-      draggable={false}
-      className="shrink-0 rounded-md"
-    />
-  );
+  // Runtime-generated data URLs cannot use next/image optimization.
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} width={size} height={size} alt="" draggable={false} className="shrink-0 rounded-md" />;
 }

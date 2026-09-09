@@ -1,17 +1,18 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BellRing, CircleDot, Gamepad2, Hourglass, RefreshCw } from 'lucide-react';
+import { BellRing, CircleDot, Gamepad2, Hourglass, RefreshCw, Star } from 'lucide-react';
+import clsx from 'clsx';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { apiService } from '../services/api';
 import { useAppStore } from '../store/app-store';
-import type { GameEntryDto, GameSnapshotDto } from '../types';
+import type { GameEntryDto, GameSnapshotDto, WatchedGameDto } from '../types';
 import AppIcon from './dashboard/AppIcon';
 import { Badge, Button, Card, Select, Skeleton } from './ui/index';
 
-type GameSort = 'total' | 'today';
+type GameSort = 'total' | 'today' | 'alpha';
 
 function formatDuration(totalSeconds: number, t: TFunction): string {
   const seconds = Math.max(0, Math.floor(totalSeconds));
@@ -28,6 +29,7 @@ export default function GamesPage() {
   const [games, setGames] = useState<GameEntryDto[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [sortBy, setSortBy] = useState<GameSort>('total');
+  const [watched, setWatched] = useState<WatchedGameDto[] | null>(null);
 
   const loadGames = useCallback(async () => {
     setLoading(true);
@@ -39,6 +41,24 @@ export default function GamesPage() {
       setLoading(false);
     }
   }, []);
+
+  const loadWatched = useCallback(async () => {
+    try {
+      setWatched(await apiService.getWatchedGamesToday());
+    } catch {
+      setWatched(null);
+    }
+  }, []);
+
+  const toggleWatch = useCallback(async (id: number, watched: boolean) => {
+    try {
+      await apiService.setGameWatched(id, watched);
+      await loadGames();
+      await loadWatched();
+    } catch {
+      /* 静默 */
+    }
+  }, [loadGames, loadWatched]);
 
   const refreshGames = useCallback(async () => {
     setLoading(true);
@@ -52,7 +72,8 @@ export default function GamesPage() {
 
   useEffect(() => {
     void loadGames();
-  }, [loadGames]);
+    void loadWatched();
+  }, [loadGames, loadWatched]);
 
   useEffect(() => {
     let disposed = false;
@@ -75,6 +96,9 @@ export default function GamesPage() {
   const sortedGames = useMemo(() => {
     if (!games) return null;
     return [...games].sort((a, b) => {
+      if (sortBy === 'alpha') {
+        return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+      }
       const delta = sortBy === 'today'
         ? b.today_seconds - a.today_seconds
         : b.total_seconds - a.total_seconds;
@@ -114,6 +138,41 @@ export default function GamesPage() {
         {stat(<BellRing className="h-5 w-5" />, t('dashboard.games.nextReminder'), snapshot ? formatDuration(snapshot.next_reminder_seconds, t) : '--')}
       </div>
 
+      {/* 关注的游戏：今日启动 + 时长 */}
+      <Card padding="none" className="overflow-hidden">
+        <div className="border-b border-border/60 px-4 py-3">
+          <h2 className="text-sm font-semibold">{t('settings.games.watchedTitle')}</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">{t('settings.games.watchedDesc')}</p>
+        </div>
+        {watched === null ? (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">{t('settings.games.loading')}</div>
+        ) : watched.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">{t('settings.games.watchedEmpty')}</div>
+        ) : (
+          <div className="divide-y divide-border/50">
+            {watched.map((g) => (
+              <div key={g.title} className="flex items-center gap-3 px-4 py-3">
+                <AppIcon exePath={g.exe_path} size={34} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 truncate text-sm font-medium">{g.title}</span>
+                    {g.launched_today && (
+                      <Badge variant="success" size="sm">
+                        <CircleDot className="mr-1 h-3 w-3" />
+                        {t('settings.games.launched')}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <div className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {t('settings.games.today')} {formatDuration(g.today_seconds, t)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       <Card padding="none" className="overflow-hidden">
         <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
           <div>
@@ -130,6 +189,7 @@ export default function GamesPage() {
               options={[
                 { value: 'total', label: t('settings.games.sortTotal') },
                 { value: 'today', label: t('settings.games.sortToday') },
+                { value: 'alpha', label: t('settings.games.sortAlpha') },
               ]}
             />
           </div>
@@ -180,6 +240,20 @@ export default function GamesPage() {
                 <div className="col-start-2 flex shrink-0 items-center gap-3 text-xs tabular-nums text-muted-foreground sm:col-start-auto sm:gap-4">
                   <span>{t('settings.games.today')} {formatDuration(game.today_seconds, t)}</span>
                   <span>{t('settings.games.total')} {formatDuration(game.total_seconds, t)}</span>
+                  <button
+                    type="button"
+                    aria-label={game.watched ? t('settings.games.unwatch') : t('settings.games.watch')}
+                    title={game.watched ? t('settings.games.unwatch') : t('settings.games.watch')}
+                    onClick={() => void toggleWatch(game.id, !game.watched)}
+                    className={clsx(
+                      'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors',
+                      game.watched
+                        ? 'border-primary/30 bg-primary/10 text-primary'
+                        : 'border-border/70 bg-card text-muted-foreground hover:border-primary/40 hover:text-primary',
+                    )}
+                  >
+                    <Star className={clsx('h-4 w-4', game.watched && 'fill-current')} />
+                  </button>
                 </div>
               </div>
             ))}

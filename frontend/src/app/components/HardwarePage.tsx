@@ -2,33 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Cpu, Gauge, HardDrive, MemoryStick, ShieldAlert, Thermometer } from 'lucide-react';
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/app-store';
 import { apiService } from '../services/api';
-import type { DiskHealthDto, HardwareSnapshotDto, TemperatureSnapshotDto } from '../types';
+import type { DiskHealthDto } from '../types';
 import { Button, Card } from './ui/index';
 import ChartTooltip from './dashboard/ChartTooltip';
-import {
-  DualArcGauge,
-  SemiGauge,
-  StatCard,
-  formatBytes,
-  levelColor,
-  tempColor,
-  timeStr,
-} from './dashboard/gauges';
+import { useHardwareLiveShared } from '../lib/hardware-live-store';
+import { DualArcGauge, SemiGauge, StatCard, formatBytes, levelColor, tempColor, timeStr } from './dashboard/gauges';
 import {
   Dialog,
   DialogContent,
@@ -61,13 +44,16 @@ const LINE_COLORS = {
 // 本地最多保留 3600 个点（1 秒轮询可覆盖 60 分钟窗口）。
 const MAX_POINTS = 3600;
 
+function downsamplePoints(points: LivePoint[], maxPoints = 180): LivePoint[] {
+  if (points.length <= maxPoints) return points;
+  const step = (points.length - 1) / (maxPoints - 1);
+  return Array.from({ length: maxPoints }, (_, index) => points[Math.round(index * step)]);
+}
+
 export default function HardwarePage() {
   const { t } = useTranslation();
-  const { config } = useAppStore(useShallow((s) => ({ config: s.config })));
-  const refreshSeconds = config?.live_refresh_interval_seconds ?? 1;
-
-  const [snapshot, setSnapshot] = useState<HardwareSnapshotDto | null>(null);
-  const [temp, setTemp] = useState<TemperatureSnapshotDto | null>(null);
+  const { snapshot, temp, error: hardwareError, sampleId } = useHardwareLiveShared();
+  const refreshSeconds = useAppStore((state) => state.config?.live_refresh_interval_seconds ?? 1);
   const [diskHealth, setDiskHealth] = useState<DiskHealthDto[]>([]);
   const [diskHealthBusy, setDiskHealthBusy] = useState(false);
   const [error, setError] = useState(false);
@@ -78,41 +64,24 @@ export default function HardwarePage() {
   const [live, setLive] = useState<LivePoint[]>([]);
 
   useEffect(() => {
-    let disposed = false;
-    const tick = async () => {
-      try {
-        const [hw, tp] = await Promise.all([
-          apiService.getHardwareSnapshot(),
-          apiService.getTemperatureSnapshot(),
-        ]);
-        if (disposed) return;
-        setSnapshot(hw);
-        setTemp(tp);
-        setError(false);
-        const now = new Date();
-        const point: LivePoint = {
-          t: timeStr(now),
-          cpuPct: hw.cpu_percent,
-          memPct: hw.memory_total_bytes > 0 ? (hw.memory_used_bytes / hw.memory_total_bytes) * 100 : null,
-          cpuTemp: tp.cpu.available ? (tp.cpu.temp_celsius ?? null) : null,
-          gpuTemp: tp.gpus[0]?.temp_celsius ?? null,
-          gpuPower: tp.gpus[0]?.power_watts ?? null,
-        };
-        const next = [...liveRef.current, point];
-        if (next.length > MAX_POINTS) next.shift();
-        liveRef.current = next;
-        setLive(next);
-      } catch {
-        if (!disposed) setError(true);
-      }
+    setError(hardwareError);
+  }, [hardwareError]);
+
+  useEffect(() => {
+    if (!snapshot || !temp || sampleId === 0) return;
+    const point: LivePoint = {
+      t: timeStr(new Date()),
+      cpuPct: snapshot.cpu_percent,
+      memPct: snapshot.memory_total_bytes > 0 ? (snapshot.memory_used_bytes / snapshot.memory_total_bytes) * 100 : null,
+      cpuTemp: temp.cpu.available ? (temp.cpu.temp_celsius ?? null) : null,
+      gpuTemp: temp.gpus[0]?.temp_celsius ?? null,
+      gpuPower: temp.gpus[0]?.power_watts ?? null,
     };
-    void tick();
-    const timer = window.setInterval(() => void tick(), refreshSeconds * 1000);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, [refreshSeconds]);
+    const next = [...liveRef.current, point];
+    if (next.length > MAX_POINTS) next.shift();
+    liveRef.current = next;
+    setLive(next);
+  }, [sampleId, snapshot, temp]);
 
   // 磁盘健康自动查询一天一次（后端 24 小时缓存）：进页面加载一次，
   // 需要最新数据时点卡片上的「刷新」强制查询。
@@ -129,17 +98,16 @@ export default function HardwarePage() {
   }, []);
 
   useEffect(() => {
-    void loadDiskHealth(false);
+    const timer = window.setTimeout(() => void loadDiskHealth(false), 1800);
+    return () => window.clearTimeout(timer);
   }, [loadDiskHealth]);
 
-  const windowed = useMemo(() => live.slice(-windowMin * 60), [live, windowMin]);
+  const windowed = useMemo(() => downsamplePoints(live.slice(-windowMin * 60)), [live, windowMin]);
 
   const cpu = temp?.cpu;
   const gpus = temp?.gpus ?? [];
   const diskTemps = temp?.disks ?? [];
-  const memoryPercent = snapshot
-    ? (snapshot.memory_used_bytes / Math.max(1, snapshot.memory_total_bytes)) * 100
-    : 0;
+  const memoryPercent = snapshot ? (snapshot.memory_used_bytes / Math.max(1, snapshot.memory_total_bytes)) * 100 : 0;
   const diskMaxTemp = diskTemps.reduce<number | null>(
     (acc, d) => (d.temp_celsius != null ? Math.max(acc ?? -Infinity, d.temp_celsius) : acc),
     null,
@@ -181,7 +149,7 @@ export default function HardwarePage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="hardware-page space-y-4">
       {/* 顶部表盘：CPU / GPU 双弧（橙=温度，蓝=占用），内存单弧 */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {/* CPU：双弧 + 各核心温度详情 */}
@@ -304,12 +272,7 @@ export default function HardwarePage() {
               <LineChart data={windowed} margin={{ left: -14, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
                 <XAxis dataKey="t" tick={{ fontSize: 9 }} interval={Math.floor(windowed.length / 8)} />
-                <YAxis
-                  yAxisId="pct"
-                  domain={[0, 100]}
-                  tick={{ fontSize: 10, fill: 'var(--chart-tick)' }}
-                  width={38}
-                />
+                <YAxis yAxisId="pct" domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--chart-tick)' }} width={38} />
                 <YAxis
                   yAxisId="temp"
                   orientation="right"
@@ -317,12 +280,7 @@ export default function HardwarePage() {
                   tick={{ fontSize: 10, fill: 'var(--chart-tick)' }}
                   width={42}
                 />
-                <YAxis
-                  yAxisId="power"
-                  orientation="right"
-                  domain={[0, 'auto']}
-                  hide
-                />
+                <YAxis yAxisId="power" orientation="right" domain={[0, 'auto']} hide />
                 <Tooltip
                   cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}
                   content={
@@ -513,12 +471,7 @@ export default function HardwarePage() {
             <ShieldAlert className="h-4 w-4 text-primary" />
             {t('hardware.diskHealth')}
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            loading={diskHealthBusy}
-            onClick={() => void loadDiskHealth(true)}
-          >
+          <Button size="sm" variant="outline" loading={diskHealthBusy} onClick={() => void loadDiskHealth(true)}>
             {t('hardware.diskHealthRefresh')}
           </Button>
         </div>
@@ -539,9 +492,7 @@ export default function HardwarePage() {
                 <div key={d.name} className="space-y-1 px-4 py-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0 flex-1 truncate text-sm font-medium">{d.name}</div>
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusClass}`}
-                    >
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusClass}`}>
                       {t(`hardware.health.${d.status}`)}
                     </span>
                   </div>
@@ -561,16 +512,13 @@ export default function HardwarePage() {
                       </span>
                     )}
                     <span>
-                      {t('hardware.powerOnHours')}:{' '}
-                      <span className="tabular-nums">{d.power_on_hours ?? '--'}</span>
+                      {t('hardware.powerOnHours')}: <span className="tabular-nums">{d.power_on_hours ?? '--'}</span>
                     </span>
                     <span>
-                      {t('hardware.readErrors')}:{' '}
-                      <span className="tabular-nums">{d.read_errors ?? '--'}</span>
+                      {t('hardware.readErrors')}: <span className="tabular-nums">{d.read_errors ?? '--'}</span>
                     </span>
                     <span>
-                      {t('hardware.writeErrors')}:{' '}
-                      <span className="tabular-nums">{d.write_errors ?? '--'}</span>
+                      {t('hardware.writeErrors')}: <span className="tabular-nums">{d.write_errors ?? '--'}</span>
                     </span>
                   </div>
                 </div>

@@ -17,34 +17,39 @@ use std::sync::Arc;
 use state::AppState;
 use tauri::{Manager, WindowEvent};
 
-/// 按配置启用 Windows 11 窗口材质（Mica / Acrylic / Tabbed / Off）。
-/// 只在启动时调用一次，改配置需重启生效（与 THRM 一致，避免运行时切换导致闪烁）。
+/// Enable Windows 11 window material (Mica / Acrylic / Gaussian / Tabbed / Off).
+/// Called once at startup; config change requires restart.
+/// Uses Tauri set_effects (window_vibrancy) so the system material + window
+/// transparency are handled correctly (unlike manual DwmSetWindowAttribute).
 #[cfg(windows)]
-fn apply_backdrop(window: &tauri::WebviewWindow, window_blur: &str) {
-    use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+fn apply_backdrop(window: &tauri::WebviewWindow, window_blur: &str, theme_mode: &str) {
+    use tauri::window::{Color, Effect, EffectsBuilder};
 
-    const DWMWA_SYSTEMBACKDROP_TYPE: u32 = 38;
-    const DWMSBT_NONE: i32 = 1;
-    const DWMSBT_MAINWINDOW: i32 = 2;
-    const DWMSBT_TABBEDWINDOW: i32 = 3;
-    const DWMSBT_TRANSIENTWINDOW: i32 = 4; // Acrylic
+    let dark = theme_mode == "dark"
+        || (theme_mode == "system"
+            && window.theme().unwrap_or(tauri::Theme::Light) == tauri::Theme::Dark);
 
-    let backdrop: i32 = match window_blur {
-        "tabbed" => DWMSBT_TABBEDWINDOW,
-        "acrylic" => DWMSBT_TRANSIENTWINDOW,
-        "off" => DWMSBT_NONE,
-        _ => DWMSBT_MAINWINDOW, // auto / mica / 其它
+    if window_blur == "off" {
+        if let Err(e) = window.set_effects(EffectsBuilder::new().build()) {
+            tracing::warn!("apply_backdrop(off): clear material failed, {e}");
+        }
+        return;
+    }
+
+    let color = if dark {
+        Color(16, 18, 22, 0)
+    } else {
+        Color(246, 248, 252, 0)
     };
 
-    if let Ok(hwnd) = window.hwnd() {
-        unsafe {
-            let _ = DwmSetWindowAttribute(
-                hwnd.0,
-                DWMWA_SYSTEMBACKDROP_TYPE,
-                &backdrop as *const i32 as *const core::ffi::c_void,
-                std::mem::size_of::<i32>() as u32,
-            );
-        }
+    let effect = match window_blur {
+        "acrylic" | "gaussian" | "auto" => Effect::Acrylic,
+        "tabbed" => Effect::Tabbed,
+        _ => Effect::Mica,
+    };
+
+    if let Err(e) = window.set_effects(EffectsBuilder::new().effect(effect).color(color).build()) {
+        tracing::warn!("apply_backdrop({window_blur}): set material failed, {e}");
     }
 }
 
@@ -142,7 +147,15 @@ fn main() {
             }
 
             if let Some(window) = app.get_webview_window("main") {
-                apply_backdrop(&window, &config.window_blur);
+                // 给主窗口设高清图标：任务栏图标默认用 default_window_icon()（单一
+                // 尺寸，高 DPI 下缩放模糊），改内嵌 256px PNG，任务栏显示清晰。
+                let win_icon =
+                    tauri::image::Image::from_bytes(include_bytes!("../icons/icon-256.png"))
+                        .expect("内嵌窗口图标 icon-256.png 解析失败");
+                if let Err(e) = window.set_icon(win_icon) {
+                    tracing::warn!("设置窗口图标失败，错误 {e}");
+                }
+                apply_backdrop(&window, &config.window_blur, &config.theme_mode);
                 // 恢复上次的大小 / 位置 / 最大化状态。
                 window_state::apply(&window);
             }
@@ -226,6 +239,8 @@ fn main() {
             games::refresh_game_library,
             games::add_game_manual,
             games::remove_game,
+            games::set_game_watched,
+            games::get_watched_games_today,
         ])
         .build(tauri::generate_context!())
         .expect("数迹应用构建失败")

@@ -118,7 +118,7 @@ pub struct ConfigDto {
     pub start_minimized: bool,
     /// 界面主题：system / light / dark。
     pub theme_mode: String,
-    /// 窗口材质：auto / mica / acrylic / tabbed / off（重启生效）。
+    /// 窗口材质：auto / mica / acrylic / gaussian / tabbed / off（重启生效）。
     pub window_blur: String,
     /// 界面字体：system / harmonyos / noto（思源黑体）。
     pub font_family: String,
@@ -281,7 +281,7 @@ pub struct ExportResultDto {
     pub message: Option<String>,
 }
 
-/// 游戏库条目（含今日/总时长）。
+/// 游戏库条目（含今日/周/月/年/总时长）。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GameEntryDto {
     pub id: i64,
@@ -291,8 +291,27 @@ pub struct GameEntryDto {
     pub source: String,
     /// 今日活跃秒数。
     pub today_seconds: i64,
+    /// 本周活跃秒数。
+    pub week_seconds: i64,
+    /// 本月活跃秒数。
+    pub month_seconds: i64,
+    /// 本年活跃秒数。
+    pub year_seconds: i64,
     /// 历史总活跃秒数。
     pub total_seconds: i64,
+    /// 是否被「关注」。
+    pub watched: bool,
+}
+
+/// 关注游戏：今日是否启动 + 今日游玩秒数（游戏页顶部与仪表盘卡片用）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WatchedGameDto {
+    pub title: String,
+    pub exe_path: String,
+    /// 今日是否启动过（今天有该游戏的会话记录）。
+    pub launched_today: bool,
+    /// 今日游玩秒数。
+    pub today_seconds: i64,
 }
 
 /// 游戏库操作结果（刷新 / 添加 / 移除）。

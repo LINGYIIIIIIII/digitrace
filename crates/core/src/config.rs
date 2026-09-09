@@ -163,7 +163,7 @@ pub struct AppConfig {
     #[serde(default = "default_theme_mode")]
     pub theme_mode: String,
 
-    /// 窗口材质：auto / mica / acrylic / tabbed / off（重启生效）。
+    /// 窗口材质：auto / mica / acrylic / gaussian / tabbed / off（重启生效）。
     #[serde(default = "default_window_blur")]
     pub window_blur: String,
 

@@ -20,6 +20,7 @@ export type CardId =
   | 'diskTemp'
   | 'health'
   | 'games'
+  | 'watchedGames'
   | 'durationAgg'
   | 'netAgg'
   | 'hwAgg'
@@ -57,6 +58,7 @@ export const ALL_CARD_IDS: CardId[] = [
   'diskTemp',
   'health',
   'games',
+  'watchedGames',
   'durationAgg',
   'netAgg',
   'hwAgg',
@@ -160,6 +162,7 @@ const DEFAULT_SIZES: Record<CardId, CardSize> = {
   diskTemp: '1x1',
   health: '1x1',
   games: '1x1',
+  watchedGames: '1x1',
   durationAgg: '3x2',
   netAgg: '3x2',
   hwAgg: '3x2',
@@ -178,7 +181,7 @@ export const TEMPLATE_IDS: TemplateId[] = ['balanced', 'compact', 'showcase', 'c
 const TEMPLATES: Record<TemplateId, TemplatePreset> = {
   // 均衡型（Bento 风）：整行大卡 + 2:1/1:2 穿插，行行填满
   balanced: {
-    order: ['durationAgg', 'appUsage', 'calendar', 'hwAgg', 'netAgg', 'networkLive', 'health'],
+    order: ['durationAgg', 'appUsage', 'calendar', 'hwAgg', 'netAgg', 'networkLive', 'health', 'watchedGames'],
     sizes: {
       durationAgg: '3x2',
       appUsage: '2x2',
@@ -187,8 +190,9 @@ const TEMPLATES: Record<TemplateId, TemplatePreset> = {
       netAgg: '3x2',
       networkLive: '2x1',
       health: '1x1',
+      watchedGames: '1x1',
     },
-    visible: ['durationAgg', 'appUsage', 'calendar', 'hwAgg', 'netAgg', 'networkLive', 'health'],
+    visible: ['durationAgg', 'appUsage', 'calendar', 'hwAgg', 'netAgg', 'networkLive', 'health', 'watchedGames'],
   },
   // 紧凑型：信息密度最高，小格 + 标准格填满
   compact: {

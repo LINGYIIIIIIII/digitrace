@@ -75,6 +75,12 @@ pub const CREATE_TABLES: &[&str] = &[
         appid       TEXT,
         created_at  TEXT    NOT NULL
     )",
+    // 关注游戏：以 title 作为唯一关注标识（跨游戏库刷新保留）。
+    // 关注后可在游戏页顶部与仪表盘卡片看到今日启动状态与游玩时长。
+    "CREATE TABLE IF NOT EXISTS watched_games (
+        title        TEXT    PRIMARY KEY,
+        created_at   TEXT    NOT NULL
+    )",
 ];
 
 /// One-time migration for databases created before multi-entry diaries:

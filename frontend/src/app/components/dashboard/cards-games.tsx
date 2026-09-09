@@ -6,11 +6,11 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
-import { BellRing, Gamepad2, Hourglass } from 'lucide-react';
+import { BellRing, CircleDot, Gamepad2, Hourglass } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { useAppStore } from '../../store/app-store';
-import type { GameSnapshotDto } from '../../types';
-import { CardShell, formatDuration } from './card-common';
+import type { GameSnapshotDto, WatchedGameDto } from '../../types';
+import { CardShell, clsx, formatDuration } from './card-common';
 import type { CardSize } from './dashboard-layout';
 
 function useGameSnapshot(): GameSnapshotDto | null {
@@ -106,6 +106,64 @@ export function GamesCard({ size }: { size: CardSize }) {
           </div>
         )}
       </div>
+    </CardShell>
+  );
+}
+
+/** 关注的游戏卡片：今日是否启动 + 游玩时长。数据来自 get_watched_games_today。 */
+export function WatchedGamesCard({ size }: { size: CardSize }) {
+  const { t } = useTranslation();
+  const { config } = useAppStore(useShallow((s) => ({ config: s.config })));
+  const refreshSeconds = config?.refresh_interval_seconds ?? 10;
+  const [watched, setWatched] = useState<WatchedGameDto[] | null>(null);
+  const compact = size === '1x1' || size === '1x2';
+
+  useEffect(() => {
+    let disposed = false;
+    const tick = async () => {
+      try {
+        const next = await apiService.getWatchedGamesToday();
+        if (!disposed) setWatched(next);
+      } catch {
+        /* 静默降级 */
+      }
+    };
+    void tick();
+    const timer = window.setInterval(() => void tick(), refreshSeconds * 1000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [refreshSeconds]);
+
+  return (
+    <CardShell title={t('dashboard.cards.watchedGames')}>
+      {watched === null ? (
+        <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
+          {t('settings.games.loading')}
+        </div>
+      ) : watched.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center px-2 text-center text-xs text-muted-foreground">
+          {t('settings.games.watchedEmpty')}
+        </div>
+      ) : (
+        <div className="flex h-full flex-col gap-1.5">
+          {watched.slice(0, compact ? 3 : 8).map((g) => (
+            <div key={g.title} className="flex items-center gap-2 rounded-lg border border-border/60 px-2 py-1.5">
+              <span className={clsx('flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-primary', g.launched_today ? 'border-primary/20 bg-primary/10' : 'border-border bg-muted text-muted-foreground')}>
+                <Gamepad2 className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[11px] leading-tight text-muted-foreground">{g.title}</div>
+                <div className="truncate text-sm font-semibold leading-tight">
+                  {g.launched_today ? formatDuration(g.today_seconds) : t('settings.games.notLaunched')}
+                </div>
+              </div>
+              {g.launched_today && <CircleDot className="h-3 w-3 shrink-0 text-primary" />}
+            </div>
+          ))}
+        </div>
+      )}
     </CardShell>
   );
 }

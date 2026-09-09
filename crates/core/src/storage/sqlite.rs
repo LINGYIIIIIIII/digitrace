@@ -162,12 +162,16 @@ fn dec_str(s: String) -> String {
 fn encrypt_legacy_sensitive_fields(conn: &Connection) -> Result<(), rusqlite::Error> {
     let mut updated: u64 = 0;
     for (table, col) in [
+        ("usage_sessions", "app_path"),
+        ("usage_sessions", "app_name"),
         ("usage_sessions", "window_title"),
+        ("page_visits", "app_name"),
         ("page_visits", "window_title"),
         ("diary_entries", "content"),
     ] {
         let select_sql = format!(
-            "SELECT id, {col} FROM {table} WHERE {col} IS NOT NULL AND {col} != '' AND {col} NOT LIKE 'dpapi:%'"
+            "SELECT id, {col} FROM {table} WHERE {col} IS NOT NULL AND {col} != ''
+             AND {col} NOT LIKE 'dpapi:%' AND {col} NOT LIKE 'aes:%'"
         );
         let mut stmt = conn.prepare(&select_sql)?;
         let rows: Vec<(i64, String)> = stmt
@@ -199,8 +203,8 @@ impl DataStore for SqliteStore {
             "INSERT INTO usage_sessions (app_path, app_name, window_title, started_at, ended_at, duration_secs, is_idle, date)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
-                session.app_path,
-                session.app_name,
+                enc_str(&session.app_path),
+                enc_str(&session.app_name),
                 enc_opt(session.window_title.as_deref()),
                 session.started_at.to_rfc3339(),
                 session.ended_at.map(|t| t.to_rfc3339()),
@@ -289,80 +293,117 @@ impl DataStore for SqliteStore {
 
     fn get_daily_summary(&self, date: NaiveDate) -> Vec<AppUsageSummary> {
         let conn = self.lock();
-        let mut out = Vec::new();
+        let mut acc: std::collections::HashMap<String, (i64, i64)> =
+            std::collections::HashMap::new();
         if let Ok(mut stmt) = conn.prepare(
-            "SELECT app_name, COALESCE(SUM(duration_secs), 0) as total, COUNT(*) as sessions
-             FROM usage_sessions WHERE date = ?1 AND is_idle = 0 AND duration_secs IS NOT NULL
-             GROUP BY app_name ORDER BY total DESC",
+            "SELECT app_name, COALESCE(duration_secs, 0) FROM usage_sessions
+             WHERE date = ?1 AND is_idle = 0 AND duration_secs IS NOT NULL",
         ) && let Ok(rows) = stmt.query_map(params![date.to_string()], |row| {
-            Ok(AppUsageSummary {
-                app_name: row.get(0)?,
-                total_seconds: row.get(1)?,
-                session_count: row.get::<_, i64>(2)?,
-                rank: 0,
-            })
+            Ok((dec_str(row.get(0)?), row.get::<_, i64>(1)?))
         }) {
-            out.extend(rows.filter_map(|r| r.ok()).enumerate().map(|(i, mut s)| {
-                s.rank = i + 1;
-                s
-            }));
+            for row in rows.flatten() {
+                let entry = acc.entry(row.0).or_default();
+                entry.0 += row.1;
+                entry.1 += 1;
+            }
+        }
+        let mut out: Vec<_> = acc
+            .into_iter()
+            .map(
+                |(app_name, (total_seconds, session_count))| AppUsageSummary {
+                    app_name,
+                    total_seconds,
+                    session_count,
+                    rank: 0,
+                },
+            )
+            .collect();
+        out.sort_by_key(|item| std::cmp::Reverse(item.total_seconds));
+        for (i, item) in out.iter_mut().enumerate() {
+            item.rank = i + 1;
         }
         out
     }
 
     fn get_top_apps(&self, start: NaiveDate, end: NaiveDate, limit: usize) -> Vec<AppUsageSummary> {
         let conn = self.lock();
-        let mut out = Vec::new();
+        let mut acc: std::collections::HashMap<String, (i64, i64)> =
+            std::collections::HashMap::new();
         if let Ok(mut stmt) = conn.prepare(
-            "SELECT app_name, COALESCE(SUM(duration_secs), 0) as total, COUNT(*) as sessions
+            "SELECT app_name, COALESCE(duration_secs, 0)
              FROM usage_sessions
              WHERE date >= ?1 AND date <= ?2 AND is_idle = 0 AND duration_secs > 0
-             GROUP BY app_name
-             ORDER BY total DESC
-             LIMIT ?3",
-        ) && let Ok(rows) = stmt.query_map(
-            params![start.to_string(), end.to_string(), limit as i64],
-            |row| {
-                Ok(AppUsageSummary {
-                    app_name: row.get(0)?,
-                    total_seconds: row.get(1)?,
-                    session_count: row.get(2)?,
+             ",
+        ) && let Ok(rows) = stmt.query_map(params![start.to_string(), end.to_string()], |row| {
+            Ok((dec_str(row.get(0)?), row.get::<_, i64>(1)?))
+        }) {
+            for row in rows.flatten() {
+                let entry = acc.entry(row.0).or_default();
+                entry.0 += row.1;
+                entry.1 += 1;
+            }
+        }
+        let mut out: Vec<_> = acc
+            .into_iter()
+            .map(
+                |(app_name, (total_seconds, session_count))| AppUsageSummary {
+                    app_name,
+                    total_seconds,
+                    session_count,
                     rank: 0,
-                })
-            },
-        ) {
-            out.extend(rows.filter_map(|r| r.ok()).enumerate().map(|(i, mut s)| {
-                s.rank = i + 1;
-                s
-            }));
+                },
+            )
+            .collect();
+        out.sort_by_key(|item| std::cmp::Reverse(item.total_seconds));
+        out.truncate(limit);
+        for (i, item) in out.iter_mut().enumerate() {
+            item.rank = i + 1;
         }
         out
     }
 
     fn get_usage_split(&self, start: NaiveDate, end: NaiveDate) -> Vec<AppUsageSplit> {
         let conn = self.lock();
-        let mut out = Vec::new();
+        let mut acc: std::collections::HashMap<String, (String, i64, i64)> =
+            std::collections::HashMap::new();
         if let Ok(mut stmt) = conn.prepare(
-            "SELECT app_name, MAX(app_path),
-                    COALESCE(SUM(CASE WHEN is_idle = 0 THEN
-                        COALESCE(duration_secs, strftime('%s','now') - strftime('%s', started_at))
-                    ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN is_idle = 1 THEN duration_secs ELSE 0 END), 0)
+            "SELECT app_name, app_path, is_idle,
+                    COALESCE(duration_secs, strftime('%s','now') - strftime('%s', started_at))
              FROM usage_sessions
              WHERE date >= ?1 AND date <= ?2
-               AND (duration_secs > 0 OR duration_secs IS NULL)
-               AND app_name != '__IDLE__'
-             GROUP BY app_name ORDER BY 3 DESC",
+               AND (duration_secs > 0 OR duration_secs IS NULL)",
         ) && let Ok(rows) = stmt.query_map(params![start.to_string(), end.to_string()], |row| {
-            Ok(AppUsageSplit {
-                app_name: row.get(0)?,
-                exe_path: row.get(1)?,
-                active_seconds: row.get(2)?,
-                idle_seconds: row.get(3)?,
-            })
+            Ok((
+                dec_str(row.get(0)?),
+                dec_str(row.get(1)?),
+                row.get::<_, i32>(2)? != 0,
+                row.get::<_, i64>(3)?,
+            ))
         }) {
-            out.extend(rows.filter_map(|r| r.ok()));
+            for (app, path, idle, seconds) in rows.flatten() {
+                if app == "__IDLE__" {
+                    continue;
+                }
+                let entry = acc.entry(app).or_insert((path, 0, 0));
+                if idle {
+                    entry.2 += seconds.max(0);
+                } else {
+                    entry.1 += seconds.max(0);
+                }
+            }
         }
+        let mut out: Vec<_> = acc
+            .into_iter()
+            .map(
+                |(app_name, (exe_path, active_seconds, idle_seconds))| AppUsageSplit {
+                    app_name,
+                    active_seconds,
+                    idle_seconds,
+                    exe_path,
+                },
+            )
+            .collect();
+        out.sort_by_key(|item| std::cmp::Reverse(item.active_seconds));
         out
     }
 
@@ -370,18 +411,24 @@ impl DataStore for SqliteStore {
         let conn = self.lock();
         let mut out = Vec::new();
         if let Ok(mut stmt) = conn.prepare(
-            "SELECT COALESCE(window_title, ''), COALESCE(duration_secs, 0)
+            "SELECT app_name, COALESCE(window_title, ''), COALESCE(duration_secs, 0)
              FROM page_visits
-             WHERE app_name = ?1 AND date = ?2 AND duration_secs > 0
+             WHERE date = ?1 AND duration_secs > 0
              ",
-        ) && let Ok(rows) = stmt.query_map(params![app_name, date.to_string()], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        ) && let Ok(rows) = stmt.query_map(params![date.to_string()], |row| {
+            Ok((
+                dec_str(row.get::<_, String>(0)?),
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
         }) {
             // DPAPI 密文不具确定性，不能靠 SQL 的 GROUP BY 聚合；
             // 先解密再在内存里按标题汇总。
             let mut agg: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
             for row in rows.flatten() {
-                *agg.entry(dec_str(row.0)).or_insert(0) += row.1;
+                if row.0 == app_name {
+                    *agg.entry(dec_str(row.1)).or_insert(0) += row.2;
+                }
             }
             let mut items: Vec<(String, i64)> = agg.into_iter().collect();
             items.sort_by_key(|x| std::cmp::Reverse(x.1));
@@ -402,7 +449,7 @@ impl DataStore for SqliteStore {
         match conn.execute(
             "INSERT INTO page_visits (session_id, app_name, window_title, started_at, ended_at, duration_secs, date)
              VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5)",
-            params![session_id, app_name, enc_opt(title), now, date.to_string()],
+            params![session_id, enc_str(app_name), enc_opt(title), now, date.to_string()],
         ) {
             Ok(_) => conn.last_insert_rowid(),
             Err(e) => { warn!("page visit insert failed: {e}"); -1 }
@@ -498,19 +545,20 @@ impl DataStore for SqliteStore {
 
     fn get_app_meta(&self, exe_path: &str) -> Option<AppMetaRecord> {
         let conn = self.lock();
-        conn.query_row(
-            "SELECT app_path, display_name, category, is_productive FROM app_metadata WHERE app_path = ?1",
-            params![exe_path],
-            |row| {
-                Ok(AppMetaRecord {
-                    app_path: row.get(0)?,
-                    display_name: row.get(1)?,
-                    category: row.get(2)?,
-                    is_productive: row.get::<_, Option<i32>>(3)?.map(|v| v != 0),
-                })
-            },
-        )
-        .ok()
+        let mut stmt = conn
+            .prepare("SELECT app_path, display_name, category, is_productive FROM app_metadata")
+            .ok()?;
+        stmt.query_map([], |row| {
+            Ok(AppMetaRecord {
+                app_path: dec_str(row.get(0)?),
+                display_name: row.get(1)?,
+                category: row.get(2)?,
+                is_productive: row.get::<_, Option<i32>>(3)?.map(|v| v != 0),
+            })
+        })
+        .ok()?
+        .flatten()
+        .find(|meta| meta.app_path == exe_path)
     }
 
     fn set_app_meta(&self, meta: &AppMetaRecord) {
@@ -519,7 +567,7 @@ impl DataStore for SqliteStore {
             "INSERT OR REPLACE INTO app_metadata (app_path, display_name, category, is_productive)
              VALUES (?1, ?2, ?3, ?4)",
             params![
-                meta.app_path,
+                enc_str(&meta.app_path),
                 meta.display_name,
                 meta.category,
                 meta.is_productive.map(|v| v as i32),
@@ -533,7 +581,8 @@ impl DataStore for SqliteStore {
         let conn = self.lock();
         let mut out = Vec::new();
         if let Ok(mut stmt) = conn.prepare(
-            "SELECT id, title, exe_path, app_name, source, appid FROM game_entries ORDER BY title COLLATE NOCASE, id",
+            "SELECT g.id, g.title, g.exe_path, g.app_name, g.source, g.appid
+             FROM game_entries g ORDER BY g.title COLLATE NOCASE, g.id",
         ) && let Ok(rows) = stmt.query_map([], |row| {
             Ok(GameRow {
                 id: row.get(0)?,
@@ -542,8 +591,57 @@ impl DataStore for SqliteStore {
                 app_name: dec_str(row.get(3)?),
                 source: row.get(4)?,
                 appid: row.get(5)?,
+                watched: false,
             })
         }) {
+            out.extend(rows.filter_map(|r| r.ok()));
+        }
+        // watched_games.title 是 AES 加密后的密文，不能与 game_entries 里同样
+        // 加密过的 title 在 SQL 里做等值比较（GCM 每次加密结果不同）。
+        // watched_games.title 存明文（不能对 game_entries 加密后的 title 做 SQL
+        // 等值比较，GCM 每次加密不同）。这里内联读明文关注列表，内存里标记。
+        // （不调用 self.watched_game_titles()，避免在同一连接锁上死锁。）
+        let mut watched_titles = Vec::new();
+        if let Ok(mut wstmt) =
+            conn.prepare("SELECT title FROM watched_games ORDER BY created_at, title")
+            && let Ok(wrows) = wstmt.query_map([], |row| row.get::<_, String>(0))
+        {
+            watched_titles.extend(wrows.filter_map(|r| r.ok()));
+        }
+        for g in out.iter_mut() {
+            g.watched = watched_titles.iter().any(|w| w == &g.title);
+        }
+        out
+    }
+
+    fn set_game_watched(&self, title: &str, watched: bool) {
+        let conn = self.lock();
+        // watched_games.title 存明文，避免 AES-256-GCM 非确定性加密导致
+        // 删除时用新密文匹配不到旧密文（否则只能收藏、无法取消）。
+        let plain_title = title.to_string();
+        if watched {
+            if let Err(e) = conn.execute(
+                "INSERT OR IGNORE INTO watched_games (title, created_at) VALUES (?1, ?2)",
+                params![plain_title, chrono::Local::now().to_rfc3339()],
+            ) {
+                warn!("set_game_watched(true) 失败: {e}");
+            }
+        } else if let Err(e) = conn.execute(
+            "DELETE FROM watched_games WHERE title = ?1",
+            params![plain_title],
+        ) {
+            warn!("set_game_watched(false) 失败: {e}");
+        }
+    }
+
+    fn watched_game_titles(&self) -> Vec<String> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        if let Ok(mut stmt) =
+            conn.prepare("SELECT title FROM watched_games ORDER BY created_at, title")
+            && let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0))
+        {
+            // watched_games.title 存的是明文，直接返回（不再解密）。
             out.extend(rows.filter_map(|r| r.ok()));
         }
         out
@@ -879,7 +977,7 @@ impl DataStore for SqliteStore {
             ))
         }) {
             for row in rows.flatten() {
-                let (app, started, dur) = row;
+                let (app, started, dur) = (dec_str(row.0), row.1, row.2);
                 if let Ok(dt) = DateTime::parse_from_rfc3339(&started) {
                     let start = dt.with_timezone(&Utc);
                     let end = start + chrono::Duration::seconds(dur);
@@ -912,7 +1010,7 @@ impl DataStore for SqliteStore {
             ))
         }) {
             for row in rows.flatten() {
-                let (app, started, dur) = row;
+                let (app, started, dur) = (dec_str(row.0), row.1, row.2);
                 if let Ok(dt) = DateTime::parse_from_rfc3339(&started) {
                     let start = dt.with_timezone(&Utc);
                     let end = start + chrono::Duration::seconds(dur);
@@ -942,18 +1040,21 @@ impl DataStore for SqliteStore {
         let conn = self.lock();
         let mut hours = [0i64; 24];
         if let Ok(mut stmt) = conn.prepare(
-            "SELECT started_at, COALESCE(duration_secs, strftime('%s','now') - strftime('%s', started_at))
+            "SELECT app_name, started_at, COALESCE(duration_secs, strftime('%s','now') - strftime('%s', started_at))
              FROM usage_sessions
-             WHERE app_name = ?1 AND date = ?2 AND is_idle = 0
+             WHERE date = ?1 AND is_idle = 0
                AND (duration_secs > 0 OR duration_secs IS NULL)",
         )
-            && let Ok(rows) = stmt.query_map(params![app_name, date.to_string()], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            && let Ok(rows) = stmt.query_map(params![date.to_string()], |row| {
+                Ok((dec_str(row.get::<_, String>(0)?), row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
             }) {
                 for row in rows.flatten() {
-                    if let Ok(parsed) = DateTime::parse_from_rfc3339(&row.0) {
+                    if row.0 != app_name {
+                        continue;
+                    }
+                    if let Ok(parsed) = DateTime::parse_from_rfc3339(&row.1) {
                         let start = parsed.with_timezone(&Utc);
-                        let end = start + chrono::Duration::seconds(row.1);
+                        let end = start + chrono::Duration::seconds(row.2);
                         add_session_to_hours(&mut hours, start, end);
                     }
                 }
@@ -1037,7 +1138,7 @@ impl DataStore for SqliteStore {
              FROM usage_sessions WHERE date = ?1 AND duration_secs > 0 ORDER BY started_at",
         ) && let Ok(rows) = stmt.query_map(params![date.to_string()], |row| {
             Ok((
-                row.get(0)?,
+                dec_str(row.get(0)?),
                 row.get::<_, i32>(1)? != 0,
                 row.get(2)?,
                 row.get(3)?,
@@ -1050,19 +1151,37 @@ impl DataStore for SqliteStore {
 
     fn export_rows(&self, start: NaiveDate, end: NaiveDate) -> Vec<(String, String, i64, i64)> {
         let conn = self.lock();
-        let mut out = Vec::new();
+        let mut acc: std::collections::HashMap<(String, String), (i64, i64)> =
+            std::collections::HashMap::new();
         if let Ok(mut stmt) = conn.prepare(
-            "SELECT app_name, date,
-                    COALESCE(SUM(CASE WHEN is_idle = 0 THEN duration_secs ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN is_idle = 1 THEN duration_secs ELSE 0 END), 0)
+            "SELECT app_name, date, is_idle, COALESCE(duration_secs, 0)
              FROM usage_sessions
-             WHERE date >= ?1 AND date <= ?2 AND app_name != '__IDLE__'
-             GROUP BY app_name, date ORDER BY date",
+             WHERE date >= ?1 AND date <= ?2 AND duration_secs IS NOT NULL",
         ) && let Ok(rows) = stmt.query_map(params![start.to_string(), end.to_string()], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            Ok((
+                dec_str(row.get::<_, String>(0)?),
+                row.get::<_, String>(1)?,
+                row.get::<_, i32>(2)? != 0,
+                row.get::<_, i64>(3)?,
+            ))
         }) {
-            out.extend(rows.flatten());
+            for (app, date, idle, seconds) in rows.flatten() {
+                if app == "__IDLE__" {
+                    continue;
+                }
+                let entry = acc.entry((app, date)).or_default();
+                if idle {
+                    entry.1 += seconds;
+                } else {
+                    entry.0 += seconds;
+                }
+            }
         }
+        let mut out: Vec<_> = acc
+            .into_iter()
+            .map(|((app, date), (active, idle))| (app, date, active, idle))
+            .collect();
+        out.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
         out
     }
 
@@ -1070,14 +1189,25 @@ impl DataStore for SqliteStore {
         let conn = self.lock();
         let mut out = Vec::new();
         if let Ok(mut stmt) = conn.prepare(
-            "SELECT date, COALESCE(SUM(CASE WHEN is_idle = 0 THEN duration_secs ELSE 0 END), 0)
+            "SELECT date, app_name, is_idle, COALESCE(duration_secs, 0)
              FROM usage_sessions
-             WHERE date >= ?1 AND date <= ?2 AND app_name != '__IDLE__'
-             GROUP BY date ORDER BY date",
+             WHERE date >= ?1 AND date <= ?2 AND duration_secs IS NOT NULL",
         ) && let Ok(rows) = stmt.query_map(params![start.to_string(), end.to_string()], |row| {
-            Ok((row.get(0)?, row.get(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                dec_str(row.get::<_, String>(1)?),
+                row.get::<_, i32>(2)? != 0,
+                row.get::<_, i64>(3)?,
+            ))
         }) {
-            out.extend(rows.flatten());
+            let mut acc: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+            for (date, app, idle, seconds) in rows.flatten() {
+                if !idle && app != "__IDLE__" {
+                    *acc.entry(date).or_default() += seconds;
+                }
+            }
+            out.extend(acc);
+            out.sort_by(|a, b| a.0.cmp(&b.0));
         }
         out
     }
@@ -1089,8 +1219,8 @@ impl SqliteStore {
     fn row_to_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
         Ok(SessionRecord {
             id: row.get(0)?,
-            app_path: row.get(1)?,
-            app_name: row.get(2)?,
+            app_path: dec_str(row.get(1)?),
+            app_name: dec_str(row.get(2)?),
             window_title: row.get::<_, Option<String>>(3)?.map(dec_str),
             started_at: parse_dt(row.get::<_, String>(4)?),
             ended_at: row.get::<_, Option<String>>(5)?.map(parse_dt),
@@ -1125,7 +1255,7 @@ impl SqliteStore {
              FROM page_visits WHERE duration_secs > 0 ORDER BY date, started_at",
         ) && let Ok(rows) = stmt.query_map([], |row| {
             Ok(serde_json::json!({
-                "app": row.get::<_, String>(0)?,
+                    "app": dec_str(row.get::<_, String>(0)?),
                 "date": row.get::<_, String>(1)?,
                 "title": dec_str(row.get::<_, String>(2)?),
                 "duration_secs": row.get::<_, i64>(3)?,
@@ -1141,7 +1271,7 @@ impl SqliteStore {
              ORDER BY date, started_at",
         ) && let Ok(rows) = stmt.query_map([], |row| {
             Ok(serde_json::json!({
-                "app": row.get::<_, String>(0)?,
+                    "app": dec_str(row.get::<_, String>(0)?),
                 "date": row.get::<_, String>(1)?,
                 "title": dec_str(row.get::<_, String>(2)?),
                 "duration_secs": row.get::<_, i64>(3)?,
@@ -1176,6 +1306,8 @@ pub struct MemoryStore {
     metas: Mutex<Vec<AppMetaRecord>>,
     games: Mutex<Vec<GameRow>>,
     next_id: Mutex<i64>,
+    /// 关注游戏 title 列表（测试用，与 SqliteStore.watched_games 表语义对齐）。
+    watched: Mutex<Vec<String>>,
 }
 
 #[cfg(test)]
@@ -1195,6 +1327,7 @@ impl Default for MemoryStore {
             metas: Mutex::new(Vec::new()),
             games: Mutex::new(Vec::new()),
             next_id: Mutex::new(1),
+            watched: Mutex::new(Vec::new()),
         }
     }
 }
@@ -1351,7 +1484,31 @@ impl DataStore for MemoryStore {
     }
 
     fn game_entries(&self) -> Vec<GameRow> {
-        self.games.lock().unwrap().clone()
+        let games = self.games.lock().unwrap();
+        let watched = self.watched.lock().unwrap();
+        games
+            .iter()
+            .map(|g| {
+                let mut g = g.clone();
+                g.watched = watched.iter().any(|w| w == &g.title);
+                g
+            })
+            .collect()
+    }
+
+    fn set_game_watched(&self, title: &str, watched: bool) {
+        let mut list = self.watched.lock().unwrap();
+        if watched {
+            if !list.iter().any(|w| w == title) {
+                list.push(title.to_string());
+            }
+        } else {
+            list.retain(|w| w != title);
+        }
+    }
+
+    fn watched_game_titles(&self) -> Vec<String> {
+        self.watched.lock().unwrap().clone()
     }
 
     fn insert_game_entry(
@@ -1373,6 +1530,7 @@ impl DataStore for MemoryStore {
             app_name: app_name.to_string(),
             source: source.to_string(),
             appid: appid.map(|s| s.to_string()),
+            watched: false,
         });
         id
     }
@@ -1402,6 +1560,7 @@ impl DataStore for MemoryStore {
                 app_name: app_name.clone(),
                 source: source.clone(),
                 appid: appid.clone(),
+                watched: false,
             });
             written += 1;
         }

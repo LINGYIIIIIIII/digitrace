@@ -11,7 +11,18 @@ import AppIcon from './AppIcon';
 import ChartTooltip, { formatAxisSeconds } from './ChartTooltip';
 import { Card } from '../ui/index';
 import type { CardSize } from './dashboard-layout';
-import { CardShell, CHART_H, LIST_LIMIT, WEEK_LABELS, clsx, formatDuration, formatDurationCompact, isNarrow, isWide, truncateLabel } from './card-common';
+import {
+  CardShell,
+  CHART_H,
+  LIST_LIMIT,
+  WEEK_LABELS,
+  clsx,
+  formatDuration,
+  formatDurationCompact,
+  isNarrow,
+  isWide,
+  truncateLabel,
+} from './card-common';
 function useHealthData(): HealthSnapshotDto | null {
   const { config } = useAppStore(useShallow((s) => ({ config: s.config })));
   const refreshSeconds = config?.live_refresh_interval_seconds ?? 1;
@@ -33,13 +44,12 @@ function useHealthData(): HealthSnapshotDto | null {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [refreshSeconds]);
 
   return snap;
 }
 
 /* ────────────────────────── 内容片段（供聚合卡复用） ────────────────────────── */
-
 
 /**
  * 使用时间秒级跳动：每 1s 拉取「进行中的活跃会话已持续秒数」（空闲时后端返回 0，
@@ -109,14 +119,13 @@ export function StatsContent({
     return (
       <div className="flex h-full flex-col justify-center gap-1.5">
         {tiles.map((tile) => (
-          <div
-            key={tile.label}
-            className="flex items-center gap-2 rounded-lg border border-border/60 px-2 py-1.5"
-          >
+          <div key={tile.label} className="flex items-center gap-2 rounded-lg border border-border/60 px-2 py-1.5">
             <span
               className={clsx(
                 'flex h-6 w-6 shrink-0 items-center justify-center rounded-lg',
-                tile.accent ? 'border border-primary/15 bg-primary/10 text-primary' : 'border border-border bg-muted text-muted-foreground',
+                tile.accent
+                  ? 'border border-primary/15 bg-primary/10 text-primary'
+                  : 'border border-border bg-muted text-muted-foreground',
               )}
             >
               {tile.icon}
@@ -138,7 +147,9 @@ export function StatsContent({
           <span
             className={clsx(
               'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-              tile.accent ? 'border border-primary/15 bg-primary/10 text-primary' : 'border border-border bg-muted text-muted-foreground',
+              tile.accent
+                ? 'border border-primary/15 bg-primary/10 text-primary'
+                : 'border border-border bg-muted text-muted-foreground',
             )}
           >
             {tile.icon}
@@ -151,16 +162,7 @@ export function StatsContent({
   );
 }
 
-
-function AppUsageContent({
-  data,
-  focus,
-  size,
-}: {
-  data: DashboardDataDto | null;
-  focus: string;
-  size: CardSize;
-}) {
+function AppUsageContent({ data, focus, size }: { data: DashboardDataDto | null; focus: string; size: CardSize }) {
   const { t } = useTranslation();
   const [selectedApp, setSelectedApp] = useState<AppUsageDto | null>(null);
   const [appWindows, setAppWindows] = useState<{ title: string; seconds: number }[]>([]);
@@ -178,10 +180,7 @@ function AppUsageContent({
       .slice(0, limit);
   }, [data, limit]);
 
-  const maxAppSeconds = useMemo(
-    () => topApps.reduce((m, a) => Math.max(m, a.active_seconds), 1),
-    [topApps],
-  );
+  const maxAppSeconds = useMemo(() => topApps.reduce((m, a) => Math.max(m, a.active_seconds), 1), [topApps]);
 
   const handleSelectApp = useCallback(
     async (app: AppUsageDto) => {
@@ -251,10 +250,14 @@ function AppUsageContent({
           >
             <AppIcon exePath={app.exe_path} size={isNarrow(size) ? 18 : 20} />
             <span className="min-w-0 flex-1 truncate">{app.app_name}</span>
-            <span className={clsx('shrink-0 tabular-nums text-muted-foreground', isNarrow(size) ? 'text-xs' : 'text-sm')}>
+            <span
+              className={clsx('shrink-0 tabular-nums text-muted-foreground', isNarrow(size) ? 'text-xs' : 'text-sm')}
+            >
               {formatDuration(app.active_seconds)}
             </span>
-            <span className={clsx('h-1 shrink-0 overflow-hidden rounded-full bg-muted', isNarrow(size) ? 'w-8' : 'w-12')}>
+            <span
+              className={clsx('h-1 shrink-0 overflow-hidden rounded-full bg-muted', isNarrow(size) ? 'w-8' : 'w-12')}
+            >
               <span
                 className="block h-full rounded-full bg-primary"
                 style={{ width: `${Math.round((app.active_seconds / maxAppSeconds) * 100)}%` }}
@@ -262,75 +265,80 @@ function AppUsageContent({
             </span>
           </button>
         ))}
-      {selectedApp && (
-        <div className="mt-2 rounded-lg border border-border/60 bg-background/60 p-2.5 text-xs">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="truncate font-semibold">{selectedApp.app_name}</span>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedApp(null);
-                setPeriodUsage(null);
-              }}
-              className="shrink-0 text-muted-foreground hover:text-foreground"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+        {selectedApp && (
+          <div className="mt-2 rounded-lg border border-border/60 bg-background/60 p-2.5 text-xs">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="truncate font-semibold">{selectedApp.app_name}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedApp(null);
+                  setPeriodUsage(null);
+                }}
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {periodUsage?.app_name === selectedApp.app_name && (
+              <div className="mb-2 grid grid-cols-3 gap-1.5">
+                {[
+                  ['usage.period.today', periodUsage.today_seconds],
+                  ['usage.period.week', periodUsage.week_seconds],
+                  ['usage.period.month', periodUsage.month_seconds],
+                ].map(([label, seconds]) => (
+                  <div key={String(label)} className="min-w-0 rounded border border-border/60 px-1.5 py-1">
+                    <div className="truncate text-[10px] text-muted-foreground">{t(String(label))}</div>
+                    <div className="truncate text-[11px] font-semibold tabular-nums">
+                      {formatDuration(Number(seconds))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!isNarrow(size) && appHourly.length > 0 && (
+              <div className="h-20">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={appHourly.map((v, i) => ({ h: i, v }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                    <XAxis dataKey="h" tick={{ fontSize: 9 }} interval={3} />
+                    <YAxis
+                      tick={{ fontSize: 9, fill: 'var(--chart-tick)' }}
+                      tickFormatter={formatAxisSeconds}
+                      width={40}
+                    />
+                    <Tooltip
+                      cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}
+                      content={<ChartTooltip valueFormatter={(v) => formatDuration(Number(v))} />}
+                    />
+                    <Line
+                      type="monotone"
+                      name={t('dashboard.hourly.activeLabel')}
+                      dataKey="v"
+                      stroke="var(--chart-primary)"
+                      dot={false}
+                      strokeWidth={1.5}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {appWindows.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {appWindows.map((w) => (
+                  <div key={w.title} className="flex justify-between text-muted-foreground">
+                    <span className="min-w-0 truncate">{w.title}</span>
+                    <span className="ml-2 shrink-0 tabular-nums">{formatDuration(w.seconds)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          {periodUsage?.app_name === selectedApp.app_name && (
-            <div className="mb-2 grid grid-cols-3 gap-1.5">
-              {[
-                ['usage.period.today', periodUsage.today_seconds],
-                ['usage.period.week', periodUsage.week_seconds],
-                ['usage.period.month', periodUsage.month_seconds],
-              ].map(([label, seconds]) => (
-                <div key={String(label)} className="min-w-0 rounded border border-border/60 px-1.5 py-1">
-                  <div className="truncate text-[10px] text-muted-foreground">{t(String(label))}</div>
-                  <div className="truncate text-[11px] font-semibold tabular-nums">{formatDuration(Number(seconds))}</div>
-                </div>
-              ))}
-            </div>
-          )}
-          {!isNarrow(size) && appHourly.length > 0 && (
-            <div className="h-20">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={appHourly.map((v, i) => ({ h: i, v }))}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-                  <XAxis dataKey="h" tick={{ fontSize: 9 }} interval={3} />
-                  <YAxis tick={{ fontSize: 9, fill: 'var(--chart-tick)' }} tickFormatter={formatAxisSeconds} width={40} />
-                  <Tooltip
-                    cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}
-                    content={<ChartTooltip valueFormatter={(v) => formatDuration(Number(v))} />}
-                  />
-                  <Line
-                    type="monotone"
-                    name={t('dashboard.hourly.activeLabel')}
-                    dataKey="v"
-                    stroke="var(--chart-primary)"
-                    dot={false}
-                    strokeWidth={1.5}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-          {appWindows.length > 0 && (
-            <div className="mt-2 space-y-1">
-              {appWindows.map((w) => (
-                <div key={w.title} className="flex justify-between text-muted-foreground">
-                  <span className="min-w-0 truncate">{w.title}</span>
-                  <span className="ml-2 shrink-0 tabular-nums">{formatDuration(w.seconds)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+        )}
+      </div>
     </div>
   );
 }
-
 
 export function HourlyContent({ hourly, size }: { hourly: number[]; size: CardSize }) {
   const { t } = useTranslation();
@@ -345,10 +353,7 @@ export function HourlyContent({ hourly, size }: { hourly: number[]; size: CardSi
           <Tooltip
             cursor={{ stroke: 'var(--chart-axis)', strokeDasharray: '3 3' }}
             content={
-              <ChartTooltip
-                labelFormatter={(h) => `${h} 时`}
-                valueFormatter={(v) => formatDuration(Number(v))}
-              />
+              <ChartTooltip labelFormatter={(h) => `${h} 时`} valueFormatter={(v) => formatDuration(Number(v))} />
             }
           />
           <Line
@@ -365,7 +370,6 @@ export function HourlyContent({ hourly, size }: { hourly: number[]; size: CardSi
   );
 }
 
-
 function heatColor(seconds: number, max: number): string {
   if (seconds <= 0 || max <= 0) return 'bg-card hover:bg-accent';
   const ratio = seconds / max;
@@ -374,7 +378,6 @@ function heatColor(seconds: number, max: number): string {
   if (ratio < 0.75) return 'bg-primary/55 hover:bg-primary/65';
   return 'bg-primary/85 hover:bg-primary';
 }
-
 
 function CalendarContent({
   usage,
@@ -417,7 +420,12 @@ function CalendarContent({
       <div className={clsx('mb-1.5 text-center text-muted-foreground', isNarrow(size) ? 'text-xs' : 'text-sm')}>
         {Number(focus.split('-')[0])} 年 {Number(focus.split('-')[1])} 月
       </div>
-      <div className={clsx('grid grid-cols-7 text-center text-muted-foreground', isNarrow(size) ? 'gap-0.5 text-xs' : 'gap-1 text-sm')}>
+      <div
+        className={clsx(
+          'grid grid-cols-7 text-center text-muted-foreground',
+          isNarrow(size) ? 'gap-0.5 text-xs' : 'gap-1 text-sm',
+        )}
+      >
         {WEEK_LABELS.map((w) => (
           <span key={w}>{w}</span>
         ))}
@@ -455,15 +463,18 @@ function CalendarContent({
             </button>
           </div>
           <div className="space-y-1 text-muted-foreground">
-            <p>{t('dashboard.calendar.active')}: {formatDuration(dayDetail.active_seconds)}</p>
-            <p>{t('dashboard.calendar.sessions')}: {dayDetail.session_count}</p>
+            <p>
+              {t('dashboard.calendar.active')}: {formatDuration(dayDetail.active_seconds)}
+            </p>
+            <p>
+              {t('dashboard.calendar.sessions')}: {dayDetail.session_count}
+            </p>
           </div>
         </div>
       )}
     </div>
   );
 }
-
 
 function HealthContent() {
   const { t } = useTranslation();
@@ -502,7 +513,6 @@ function HealthContent() {
   );
 }
 
-
 export function StatsCard({
   data,
   size,
@@ -522,7 +532,6 @@ export function StatsCard({
   );
 }
 
-
 export function AppUsageCard({ data, focus, size }: { data: DashboardDataDto | null; focus: string; size: CardSize }) {
   const { t } = useTranslation();
   return (
@@ -532,7 +541,6 @@ export function AppUsageCard({ data, focus, size }: { data: DashboardDataDto | n
   );
 }
 
-
 export function HourlyCard({ hourly, size }: { hourly: number[]; size: CardSize }) {
   const { t } = useTranslation();
   return (
@@ -541,7 +549,6 @@ export function HourlyCard({ hourly, size }: { hourly: number[]; size: CardSize 
     </CardShell>
   );
 }
-
 
 export function CalendarCard({
   usage,
@@ -562,7 +569,6 @@ export function CalendarCard({
   );
 }
 
-
 export function HealthCard() {
   const { t } = useTranslation();
   return (
@@ -571,7 +577,3 @@ export function HealthCard() {
     </CardShell>
   );
 }
-
-
-
-

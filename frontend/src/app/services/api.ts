@@ -13,6 +13,7 @@ import type {
   GameEntryDto,
   GameLibraryResultDto,
   GameSnapshotDto,
+  WatchedGameDto,
   HealthSnapshotDto,
   HistoryPointDto,
   HardwareSnapshotDto,
@@ -68,13 +69,16 @@ const DEMO_CONFIG: AppConfig = {
 
 export function isTauriRuntime(): boolean {
   if (typeof window === 'undefined') return false;
-  const internals = (window as Window & {
-    __TAURI_INTERNALS__?: {
-      invoke?: unknown;
-      metadata?: { transformCallback?: unknown };
-    };
-  }).__TAURI_INTERNALS__;
-  return typeof internals?.invoke === 'function' && typeof internals.metadata?.transformCallback === 'function';
+  const internals = (
+    window as Window & {
+      __TAURI_INTERNALS__?: { invoke?: unknown };
+    }
+  ).__TAURI_INTERNALS__;
+  // Tauri 2 把 invoke 直接挂在 __TAURI_INTERNALS__ 上（平级，无 metadata 子对象）。
+  // 早期实现误判为 metadata?.transformCallback，导致即便在 Tauri 里也恒为 false，
+  // 进而 isWindowsChrome=false、自绘标题栏（最小化/最大化/关闭）不渲染。
+  // 用 invoke 存在性判断 + withGlobalTauri 注入的全局 isTauri 标志兜底。
+  return typeof internals?.invoke === 'function' || !!((window as { isTauri?: boolean }).isTauri);
 }
 
 function demoSeries(length = 24, peak = 900): number[] {
@@ -107,54 +111,175 @@ async function demoInvoke<T>(command: string, args?: Record<string, unknown>): P
     next_reminder_seconds: 1_560,
   };
   const games: GameEntryDto[] = [
-    { id: 1, title: '星穹铁道', exe_path: 'starrail.exe', source: 'Demo', today_seconds: 4_560, total_seconds: 82_800 },
-    { id: 2, title: '艾尔登法环', exe_path: 'eldenring.exe', source: 'Steam', today_seconds: 1_680, total_seconds: 64_200 },
-    { id: 3, title: 'Hades II', exe_path: 'hades2.exe', source: 'Steam', today_seconds: 1_020, total_seconds: 28_740 },
+    { id: 1, title: '星穹铁道', exe_path: 'starrail.exe', source: 'Demo', today_seconds: 4_560, total_seconds: 82_800, watched: false },
+    {
+      id: 2,
+      title: '艾尔登法环',
+      exe_path: 'eldenring.exe',
+      source: 'Steam',
+      today_seconds: 1_680,
+      total_seconds: 64_200,
+      watched: true,
+    },
+    { id: 3, title: 'Hades II', exe_path: 'hades2.exe', source: 'Steam', today_seconds: 1_020, total_seconds: 28_740, watched: false },
   ];
   switch (command) {
-    case 'get_config': return DEMO_CONFIG as T;
-    case 'set_config': return undefined as T;
-    case 'get_dashboard_data': return ({ apps: DEMO_APPS, active_seconds: 8_100, idle_seconds: 438, total_seconds: 8_538, since: '09:12' } as DashboardDataDto) as T;
-    case 'get_usage_split': return DEMO_APPS as T;
-    case 'get_stats': return ({ active_seconds: 8_100, idle_seconds: 438, total_seconds: 8_538, since: '09:12' } as StatsDto) as T;
-    case 'get_day_hourly': return demoSeries() as T;
-    case 'get_year_heatmap': return [] as T;
-    case 'get_active_session_elapsed': return 1_240 as T;
-    case 'get_hour_apps': return DEMO_APPS.slice(0, 3) as T;
-    case 'get_day_hour_apps': return Array.from({ length: 24 }, () => DEMO_APPS.slice(0, 2)) as T;
-    case 'get_app_hourly': return demoSeries(24, 420) as T;
-    case 'get_week_totals': return [32_400, 2_100] as T;
-    case 'get_day_detail': return ({ date: String(args?.date ?? ''), active_seconds: 8_100, idle_seconds: 438, session_count: 12, diary: '', sessions: [] } as DayDetailDto) as T;
-    case 'get_window_titles': return [{ title: 'Digitrace dashboard', seconds: 1_200 }] as T;
-    case 'get_app_period_usage': return ({ app_name: String(args?.appName ?? 'Demo'), today_seconds: 3_420, week_seconds: 12_600, month_seconds: 42_000 } as AppPeriodUsageDto) as T;
-    case 'get_app_icon': return demoIcon(String(args?.exePath ?? 'demo.exe')) as T;
-    case 'get_game_snapshot': return gameSnapshot as T;
-    case 'get_games_library': return games as T;
-    case 'refresh_game_library': return ({ ok: true, found: games.length, message: null } as GameLibraryResultDto) as T;
-    case 'add_game_manual': return ({ ok: true, found: games.length + 1, message: null } as GameLibraryResultDto) as T;
-    case 'remove_game': return ({ ok: true, found: games.length - 1, message: null } as GameLibraryResultDto) as T;
-    case 'get_network_snapshot': return ({ upload_bytes_per_sec: 1_200_000, download_bytes_per_sec: 8_400_000, session_upload_bytes: 840_000_000, session_download_bytes: 4_200_000_000, adapter_count: 1 } as NetworkSnapshotDto) as T;
-    case 'get_net_apps': return ({ bytes_available: true, etw_mode: false, apps: [] } as NetAppsSnapshotDto) as T;
-    case 'get_attributed_usage': return ({ available: true, apps: [], message: null, since_local: '', until_local: '' } as AttributedUsageResult) as T;
-    case 'get_health_snapshot': return ({ enabled: true, reminder_minutes: 60, break_minutes: 5, streak_seconds: 3_840, idle_seconds: 0, reminders_today: 1, next_reminder_seconds: 1_560, last_reminder_local: null, last_break_local: null } as HealthSnapshotDto) as T;
+    case 'get_config':
+      return DEMO_CONFIG as T;
+    case 'set_config':
+      return undefined as T;
+    case 'get_dashboard_data':
+      return {
+        apps: DEMO_APPS,
+        active_seconds: 8_100,
+        idle_seconds: 438,
+        total_seconds: 8_538,
+        since: '09:12',
+      } as DashboardDataDto as T;
+    case 'get_usage_split':
+      return DEMO_APPS as T;
+    case 'get_stats':
+      return { active_seconds: 8_100, idle_seconds: 438, total_seconds: 8_538, since: '09:12' } as StatsDto as T;
+    case 'get_day_hourly':
+      return demoSeries() as T;
+    case 'get_year_heatmap':
+      return [] as T;
+    case 'get_active_session_elapsed':
+      return 1_240 as T;
+    case 'get_hour_apps':
+      return DEMO_APPS.slice(0, 3) as T;
+    case 'get_day_hour_apps':
+      return Array.from({ length: 24 }, () => DEMO_APPS.slice(0, 2)) as T;
+    case 'get_app_hourly':
+      return demoSeries(24, 420) as T;
+    case 'get_week_totals':
+      return [32_400, 2_100] as T;
+    case 'get_day_detail':
+      return {
+        date: String(args?.date ?? ''),
+        active_seconds: 8_100,
+        idle_seconds: 438,
+        session_count: 12,
+        diary: '',
+        sessions: [],
+      } as DayDetailDto as T;
+    case 'get_window_titles':
+      return [{ title: 'Digitrace dashboard', seconds: 1_200 }] as T;
+    case 'get_app_period_usage':
+      return {
+        app_name: String(args?.appName ?? 'Demo'),
+        today_seconds: 3_420,
+        week_seconds: 12_600,
+        month_seconds: 42_000,
+      } as AppPeriodUsageDto as T;
+    case 'get_app_icon':
+      return demoIcon(String(args?.exePath ?? 'demo.exe')) as T;
+    case 'get_game_snapshot':
+      return gameSnapshot as T;
+    case 'get_games_library':
+      return games as T;
+    case 'refresh_game_library':
+      return { ok: true, found: games.length, message: null } as GameLibraryResultDto as T;
+    case 'add_game_manual':
+      return { ok: true, found: games.length + 1, message: null } as GameLibraryResultDto as T;
+    case 'remove_game':
+      return { ok: true, found: games.length - 1, message: null } as GameLibraryResultDto as T;
+    case 'get_network_snapshot':
+      return {
+        upload_bytes_per_sec: 1_200_000,
+        download_bytes_per_sec: 8_400_000,
+        session_upload_bytes: 840_000_000,
+        session_download_bytes: 4_200_000_000,
+        adapter_count: 1,
+      } as NetworkSnapshotDto as T;
+    case 'get_net_apps':
+      return { bytes_available: true, etw_mode: false, apps: [] } as NetAppsSnapshotDto as T;
+    case 'get_attributed_usage':
+      return {
+        available: true,
+        apps: [],
+        message: null,
+        since_local: '',
+        until_local: '',
+      } as AttributedUsageResult as T;
+    case 'get_health_snapshot':
+      return {
+        enabled: true,
+        reminder_minutes: 60,
+        break_minutes: 5,
+        streak_seconds: 3_840,
+        idle_seconds: 0,
+        reminders_today: 1,
+        next_reminder_seconds: 1_560,
+        last_reminder_local: null,
+        last_break_local: null,
+      } as HealthSnapshotDto as T;
     case 'get_network_history':
-    case 'get_network_history_up': return [] as T;
-    case 'get_network_live_window': return [] as T;
-    case 'get_hardware_snapshot': return ({ cpu_percent: 32, memory_total_bytes: 16_000_000_000, memory_used_bytes: 8_400_000_000, disks: [] } as HardwareSnapshotDto) as T;
-    case 'get_day_metrics': return ({ cpu_percent: [], mem_percent: [], cpu_temp_c: [], gpu_usage_percent: [], gpu_temp_c: [], gpu_power_watts: [], net_down_bps: [], net_up_bps: [] } as DayMetricsDto) as T;
-    case 'get_temperature_snapshot': return ({ cpu: { available: true, temp_celsius: 48, package_celsius: 50, per_core: [], source: 'Demo', driver_installed: true, driver_running: true, driver_version: null, needs_admin: false, message: null }, gpus: [], disks: [] } as TemperatureSnapshotDto) as T;
-    case 'get_disk_health': return [] as T;
+    case 'get_network_history_up':
+      return [] as T;
+    case 'get_network_live_window':
+      return [] as T;
+    case 'get_hardware_snapshot':
+      return {
+        cpu_percent: 32,
+        memory_total_bytes: 16_000_000_000,
+        memory_used_bytes: 8_400_000_000,
+        disks: [],
+      } as HardwareSnapshotDto as T;
+    case 'get_day_metrics':
+      return {
+        cpu_percent: [],
+        mem_percent: [],
+        cpu_temp_c: [],
+        gpu_usage_percent: [],
+        gpu_temp_c: [],
+        gpu_power_watts: [],
+        net_down_bps: [],
+        net_up_bps: [],
+      } as DayMetricsDto as T;
+    case 'get_temperature_snapshot':
+      return {
+        cpu: {
+          available: true,
+          temp_celsius: 48,
+          package_celsius: 50,
+          per_core: [],
+          source: 'Demo',
+          driver_installed: true,
+          driver_running: true,
+          driver_version: null,
+          needs_admin: false,
+          message: null,
+        },
+        gpus: [],
+        disks: [],
+      } as TemperatureSnapshotDto as T;
+    case 'get_disk_health':
+      return [] as T;
     case 'is_auto_start':
-    case 'is_elevated_auto_start': return false as T;
-    case 'check_update': return ({ current_version: 'demo', latest_version: 'demo', has_update: false, url: '', sha256: '', notes: '', message: null } as UpdateCheckDto) as T;
+    case 'is_elevated_auto_start':
+      return false as T;
+    case 'check_update':
+      return {
+        current_version: 'demo',
+        latest_version: 'demo',
+        has_update: false,
+        url: '',
+        sha256: '',
+        notes: '',
+        message: null,
+      } as UpdateCheckDto as T;
     case 'download_update':
     case 'install_update':
-    case 'switch_to_pending': return ({ ok: false, message: 'Demo mode' } as UpdateActionDto) as T;
-    case 'get_log_path': return 'Demo mode' as T;
+    case 'switch_to_pending':
+      return { ok: false, message: 'Demo mode' } as UpdateActionDto as T;
+    case 'get_log_path':
+      return 'Demo mode' as T;
     case 'export_plaintext':
-    case 'export_usage_csv': return ({ ok: false, path: null, message: 'Demo mode' } as ExportResultDto) as T;
-    case 'get_active_session_elapsed': return 1_240 as T;
-    default: return undefined as T;
+    case 'export_usage_csv':
+      return { ok: false, path: null, message: 'Demo mode' } as ExportResultDto as T;
+    default:
+      return undefined as T;
   }
 }
 
@@ -314,6 +439,16 @@ class ApiService {
 
   async removeGame(id: number): Promise<GameLibraryResultDto> {
     return invoke<GameLibraryResultDto>('remove_game', { id });
+  }
+
+  /** 关注/取消关注一个游戏（按游戏库条目 id）。 */
+  async setGameWatched(id: number, watched: boolean): Promise<boolean> {
+    return invoke<boolean>('set_game_watched', { id, watched });
+  }
+
+  /** 关注的游戏今日状态（启动 + 时长）。 */
+  async getWatchedGamesToday(): Promise<WatchedGameDto[]> {
+    return invoke<WatchedGameDto[]>('get_watched_games_today');
   }
 
   async revealInExplorer(path: string): Promise<void> {

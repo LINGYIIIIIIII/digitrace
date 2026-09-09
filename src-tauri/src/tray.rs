@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use tauri::{
+    image::Image,
     menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent, TrayIconId},
     AppHandle, Manager,
@@ -187,8 +188,12 @@ pub fn create_tray_icon(
     app: &mut tauri::App,
     menu: &Menu<tauri::Wry>,
 ) -> tauri::Result<tauri::tray::TrayIcon> {
+    // 用内嵌的高分辨率 PNG（256px）作为托盘图标，避免 default_window_icon()
+    // 只提供单一尺寸、在任务栏/托盘高 DPI 下缩放变糊。
+    let icon = Image::from_bytes(include_bytes!("../icons/icon-256.png"))
+        .expect("内嵌托盘图标 icon-256.png 解析失败");
     let tray = TrayIconBuilder::with_id("main-tray")
-        .icon(app.default_window_icon().expect("缺省窗口图标缺失").clone())
+        .icon(icon)
         .menu(menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {

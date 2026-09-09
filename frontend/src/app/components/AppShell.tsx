@@ -140,9 +140,7 @@ function TitleBarButton({
       }}
       className={clsx(
         'flex h-8 w-10 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors',
-        danger
-          ? 'hover:bg-red-500 hover:text-white'
-          : 'hover:bg-foreground/10 hover:text-foreground',
+        danger ? 'hover:bg-red-500 hover:text-white' : 'hover:bg-foreground/10 hover:text-foreground',
       )}
     >
       {icon}
@@ -180,9 +178,7 @@ function TitleBar({
         {...DRAG_PROPS}
         style={{ left: leftOffset }}
       >
-        <div className="flex h-full min-w-0 flex-1 items-center px-3 pt-1">
-          {leftSlot}
-        </div>
+        <div className="flex h-full min-w-0 flex-1 items-center px-3 pt-1">{leftSlot}</div>
       </div>
 
       {/* Keep only native window controls interactive above modal overlays. */}
@@ -290,7 +286,10 @@ function StatusBadges({
 
       {items.includes('active') && today && (
         <span
-          className={clsx(baseClass, 'glacier-status-chip border-border bg-card font-semibold shadow-sm shadow-black/5')}
+          className={clsx(
+            baseClass,
+            'glacier-status-chip border-border bg-card font-semibold shadow-sm shadow-black/5',
+          )}
         >
           <Timer className="h-3.5 w-3.5 text-primary" />
           {t('appShell.status.todayActive')} {formatDuration(today.active)}
@@ -299,7 +298,10 @@ function StatusBadges({
 
       {items.includes('idle') && today && (
         <span
-          className={clsx(baseClass, 'glacier-status-chip border-border bg-card text-muted-foreground shadow-sm shadow-black/5')}
+          className={clsx(
+            baseClass,
+            'glacier-status-chip border-border bg-card text-muted-foreground shadow-sm shadow-black/5',
+          )}
         >
           <Clock3 className="h-3.5 w-3.5" />
           {t('appShell.status.todayIdle')} {formatDuration(today.idle)}
@@ -661,12 +663,15 @@ export default function AppShell({
     }
   }, []);
 
-  const handleLogoKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      handleOpenRepository();
-    }
-  }, [handleOpenRepository]);
+  const handleLogoKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        handleOpenRepository();
+      }
+    },
+    [handleOpenRepository],
+  );
 
   const handleToggleSidebar = useCallback(() => {
     setSidebarExpanded((prev) => {
@@ -763,9 +768,7 @@ export default function AppShell({
                 sidebarExpanded ? 'w-auto opacity-100' : 'w-0 opacity-0',
               )}
             >
-              <span className="truncate text-base font-semibold tracking-wide text-foreground">
-                {BRAND.name}
-              </span>
+              <span className="truncate text-base font-semibold tracking-wide text-foreground">{BRAND.name}</span>
               {appVersion && (
                 <span className="mt-px shrink-0 rounded bg-muted/80 px-1 py-[1px] text-[9px] font-medium leading-none text-muted-foreground">
                   v{appVersion}
@@ -844,11 +847,7 @@ export default function AppShell({
         )}
 
         <div className="glacier-content-panel relative min-h-0 flex-1 overflow-hidden">
-          <div
-            ref={scrollRef}
-            className="app-scroll-root app-scroll-root--hide-native h-full"
-            {...NO_DRAG_PROPS}
-          >
+          <div ref={scrollRef} className="app-scroll-root app-scroll-root--hide-native h-full" {...NO_DRAG_PROPS}>
             <div id="ui-zoom-root" className="min-h-full px-4 pb-6 pt-4 sm:px-5 lg:px-6">
               {/* Alerts */}
               <div className="mx-auto max-w-[1120px] min-[1536px]:max-w-[1280px] min-[1800px]:max-w-[1440px] min-[2400px]:max-w-[1560px]">
@@ -901,7 +900,7 @@ export default function AppShell({
                     animate="center"
                     exit="exit"
                     data-page-reveal="cards"
-                    className="w-full min-w-0 px-1 pb-2 will-change-transform"
+                    className="w-full min-w-0 px-1 pb-2"
                   >
                     {contentMap[activeTab]}
                   </motion.div>

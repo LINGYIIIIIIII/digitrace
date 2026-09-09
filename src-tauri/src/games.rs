@@ -4,7 +4,6 @@
 //! - 连续游戏提醒：后台线程 5 秒 tick，读当前未关闭会话 → 命中游戏且未空闲 → 累计连续时长，
 //!   到阈值弹 Windows 原生通知并归零。纯内存状态（重启重新计时），失败静默，不影响主流程。
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -12,7 +11,7 @@ use tauri::{AppHandle, Manager, State};
 use timetrace_core::games::stats;
 use timetrace_core::{AppConfig, DataStore};
 
-use crate::api::{GameEntryDto, GameLibraryResultDto, GameSnapshotDto};
+use crate::api::{GameEntryDto, GameLibraryResultDto, GameSnapshotDto, WatchedGameDto};
 use crate::health::show_toast;
 use crate::state::AppState;
 
@@ -70,7 +69,7 @@ impl GameTracker {
             let Ok(api) = app_state.api.lock() else {
                 return;
             };
-            let games = api.db().game_entries();
+            let games = visible_game_entries(&api.db());
             stats::current_game(&games, &*api.db()).is_some()
         };
         if !playing {
@@ -133,7 +132,7 @@ impl GameTracker {
                     next_reminder_seconds: reminder_minutes as i64 * 60,
                 };
             };
-            let games = api.db().game_entries();
+            let games = visible_game_entries(&api.db());
             let current = stats::current_game(&games, &*api.db()).map(|g| g.title.clone());
             let today_total: i64 = stats::game_stats_today(&*api.db(), &games)
                 .iter()
@@ -189,22 +188,26 @@ fn clone_db(app: &AppHandle) -> Option<Arc<timetrace_core::SqliteStore>> {
         .map(|api| api.db())
 }
 
-/// 游戏库列表（含今日/总时长）。统计在后台线程执行，不阻塞界面。
+/// 忽略旧版本无条件写入的 `source=known` 条目。
+///
+/// 内置名单现在只用于识别别名，不再代表已安装游戏；过滤兼容旧数据库，
+/// 用户点击“刷新游戏库”后，`replace_non_manual_games` 会正式清理这些旧条目。
+fn visible_game_entries(db: &timetrace_core::SqliteStore) -> Vec<timetrace_core::GameRow> {
+    db.game_entries()
+        .into_iter()
+        .filter(|game| game.source != "known")
+        .collect()
+}
+
+/// 游戏库列表（含今日/周/月/年/总时长）。统计在后台线程执行，不阻塞界面。
 #[tauri::command]
 pub async fn get_games_library(app: AppHandle) -> Vec<GameEntryDto> {
     let Some(db) = clone_db(&app) else {
         return Vec::new();
     };
     tauri::async_runtime::spawn_blocking(move || {
-        let games = db.game_entries();
-        let today_map: HashMap<String, i64> = stats::game_stats_today(&*db, &games)
-            .into_iter()
-            .map(|s| (s.title, s.seconds))
-            .collect();
-        let all_map: HashMap<String, i64> = stats::game_stats_all(&*db, &games)
-            .into_iter()
-            .map(|s| (s.title, s.seconds))
-            .collect();
+        let games = visible_game_entries(&db);
+        let periods = stats::game_stats_periods(&*db, &games);
         games
             .into_iter()
             .map(|g| GameEntryDto {
@@ -212,8 +215,12 @@ pub async fn get_games_library(app: AppHandle) -> Vec<GameEntryDto> {
                 title: g.title.clone(),
                 exe_path: g.exe_path,
                 source: g.source,
-                today_seconds: today_map.get(&g.title).copied().unwrap_or(0),
-                total_seconds: all_map.get(&g.title).copied().unwrap_or(0),
+                today_seconds: periods.today.get(&g.title).copied().unwrap_or(0),
+                week_seconds: periods.week.get(&g.title).copied().unwrap_or(0),
+                month_seconds: periods.month.get(&g.title).copied().unwrap_or(0),
+                year_seconds: periods.year.get(&g.title).copied().unwrap_or(0),
+                total_seconds: periods.total.get(&g.title).copied().unwrap_or(0),
+                watched: g.watched,
             })
             .collect()
     })
@@ -313,4 +320,50 @@ pub fn remove_game(state: State<'_, AppState>, id: i64) -> GameLibraryResultDto 
             message: Some("未找到该条目".to_string()),
         }
     }
+}
+
+/// 关注/取消关注一个游戏（按 game id 定位 title，关注状态跨刷新保留）。
+#[tauri::command]
+pub fn set_game_watched(state: State<'_, AppState>, id: i64, watched: bool) -> bool {
+    let api = crate::api::lock(&state);
+    let title = api
+        .db()
+        .game_entries()
+        .into_iter()
+        .find(|g| g.id == id)
+        .map(|g| g.title.clone());
+    if let Some(title) = title {
+        api.db().set_game_watched(&title, watched);
+        true
+    } else {
+        false
+    }
+}
+
+/// 关注的游戏今日状态：是否启动 + 今日游玩秒数。
+/// 在后台线程聚合（避免阻塞界面）。
+#[tauri::command]
+pub async fn get_watched_games_today(app: AppHandle) -> Vec<WatchedGameDto> {
+    let Some(db) = clone_db(&app) else {
+        return Vec::new();
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let games = visible_game_entries(&db);
+        let periods = stats::game_stats_periods(&*db, &games);
+        games
+            .into_iter()
+            .filter(|g| g.watched)
+            .map(|g| {
+                let today = periods.today.get(&g.title).copied().unwrap_or(0);
+                WatchedGameDto {
+                    title: g.title.clone(),
+                    exe_path: g.exe_path,
+                    launched_today: today > 0,
+                    today_seconds: today,
+                }
+            })
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
 }

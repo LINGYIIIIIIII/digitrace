@@ -3,8 +3,8 @@
 //! 分层策略（保证稳定性，任何一层失效都不影响整体）：
 //! 1. **平台扫描**：Steam（libraryfolders.vdf + appmanifest_*.acf）、Epic（Manifests/*.item）、
 //!    WeGame（games 目录）、米哈游（注册表尽力而为）——格式确定才解析，其余全容错跳过；
-//! 2. **内置知名名单**（`KNOWN_GAMES`）：覆盖启动器格式不确定的平台（米哈游等），
-//!    按 exe 文件名 stem 匹配，确定性兜底；
+//! 2. **内置知名名单**（`KNOWN_GAMES`）：仅作为进程名识别别名，
+//!    不会单独生成“已安装游戏”条目，避免把未安装的游戏显示到游戏库；
 //! 3. **手动条目**：用户自行添加/移除。
 //!
 //! 匹配以 **exe 路径精确匹配**为主（每个会话都记录了前台进程的完整路径），
@@ -14,12 +14,15 @@ pub mod platform;
 pub mod stats;
 
 pub use platform::{FoundGame, scan_all_platforms};
-pub use stats::{GameStat, game_stats_all, game_stats_in_range, game_stats_today};
+pub use stats::{
+    GameStat, GameStatsPeriods, game_stats_all, game_stats_in_range, game_stats_month,
+    game_stats_periods, game_stats_today, game_stats_week, game_stats_year,
+};
 
 use crate::contracts::GameRow;
 
-/// 内置知名游戏名单：exe 文件名 stem（无扩展名，小写）→ 游戏名。
-/// 覆盖启动器内部格式不确定或难以解析的平台（米哈游/WeGame 常见游戏等）。
+/// 内置知名游戏识别别名：exe 文件名 stem（无扩展名，小写）→ 游戏名。
+/// 该名单不直接写入游戏库，只有从真实进程/平台记录中命中时才可使用。
 pub const KNOWN_GAMES: &[(&str, &str)] = &[
     // 米哈游（启动器格式多变，按进程名兜底）
     ("genshinimpact", "原神"),
@@ -94,6 +97,7 @@ mod tests {
             app_name: app_name.to_string(),
             source: "manual".to_string(),
             appid: None,
+            watched: false,
         }
     }
 

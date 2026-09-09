@@ -1,46 +1,15 @@
 // 硬件域卡片：硬件/温度数据 hook、表盘内容、磁盘温度与独立卡片。
-import { useEffect, useState } from 'react';
 import { Cpu, Gauge, MemoryStick } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useShallow } from 'zustand/react/shallow';
-import { apiService } from '../../services/api';
-import { useAppStore } from '../../store/app-store';
 import type { HardwareSnapshotDto, TemperatureSnapshotDto } from '../../types';
+import { useHardwareLiveShared } from '../../lib/hardware-live-store';
 import { DualArcGauge, SemiGauge, formatBytes, levelColor, tempColor } from './gauges';
 import type { CardSize } from './dashboard-layout';
 import { CardShell, clsx, isNarrow } from './card-common';
 export function useHardwareData(): { snapshot: HardwareSnapshotDto | null; temp: TemperatureSnapshotDto | null } {
-  const { config } = useAppStore(useShallow((s) => ({ config: s.config })));
-  const refreshSeconds = config?.live_refresh_interval_seconds ?? 1;
-  const [snapshot, setSnapshot] = useState<HardwareSnapshotDto | null>(null);
-  const [temp, setTemp] = useState<TemperatureSnapshotDto | null>(null);
-
-  useEffect(() => {
-    let disposed = false;
-    const tick = async () => {
-      try {
-        const [hw, tp] = await Promise.all([
-          apiService.getHardwareSnapshot(),
-          apiService.getTemperatureSnapshot(),
-        ]);
-        if (disposed) return;
-        setSnapshot(hw);
-        setTemp(tp);
-      } catch {
-        /* 静默降级 */
-      }
-    };
-    void tick();
-    const timer = window.setInterval(() => void tick(), refreshSeconds * 1000);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, [refreshSeconds]);
-
+  const { snapshot, temp } = useHardwareLiveShared();
   return { snapshot, temp };
 }
-
 
 export function HardwareGaugesContent({
   snapshot,
@@ -54,9 +23,7 @@ export function HardwareGaugesContent({
   const { t } = useTranslation();
   const cpu = temp?.cpu;
   const gpus = temp?.gpus ?? [];
-  const memoryPercent = snapshot
-    ? (snapshot.memory_used_bytes / Math.max(1, snapshot.memory_total_bytes)) * 100
-    : 0;
+  const memoryPercent = snapshot ? (snapshot.memory_used_bytes / Math.max(1, snapshot.memory_total_bytes)) * 100 : 0;
   const compact = isNarrow(size);
   // 所有档位都是三列横排：小卡为迷你表盘，中/大卡为标准表盘。
   const labelCls = compact ? 'text-[11px]' : 'text-xs';
@@ -137,7 +104,6 @@ export function HardwareGaugesContent({
   );
 }
 
-
 export function DiskTempContent({ temp }: { temp: TemperatureSnapshotDto | null }) {
   const { t } = useTranslation();
   const disks = temp?.disks ?? [];
@@ -158,7 +124,6 @@ export function DiskTempContent({ temp }: { temp: TemperatureSnapshotDto | null 
   );
 }
 
-
 export function HardwareGaugesCard({ size }: { size: CardSize }) {
   const { t } = useTranslation();
   const { snapshot, temp } = useHardwareData();
@@ -169,7 +134,6 @@ export function HardwareGaugesCard({ size }: { size: CardSize }) {
   );
 }
 
-
 export function DiskTempCard({ size }: { size: CardSize }) {
   const { t } = useTranslation();
   const { temp } = useHardwareData();
@@ -179,6 +143,3 @@ export function DiskTempCard({ size }: { size: CardSize }) {
     </CardShell>
   );
 }
-
-
-

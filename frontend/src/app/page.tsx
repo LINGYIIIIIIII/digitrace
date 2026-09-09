@@ -15,9 +15,7 @@ import { useAppStore } from './store/app-store';
 
 // 首屏只加载仪表盘；其余页面按需分包（next/dynamic）：减小首屏 JS 体积与
 // 渲染进程内存占用、加快启动——切页时才加载对应页面 chunk（本地加载很快）。
-const pageLoading = () => (
-  <div className="py-24 text-center text-sm text-muted-foreground">…</div>
-);
+const pageLoading = () => <div className="py-24 text-center text-sm text-muted-foreground">…</div>;
 const AppUsagePage = dynamic(() => import('./components/AppUsagePage'), { ssr: false, loading: pageLoading });
 const CalendarPage = dynamic(() => import('./components/CalendarPage'), { ssr: false, loading: pageLoading });
 const HardwarePage = dynamic(() => import('./components/HardwarePage'), { ssr: false, loading: pageLoading });
@@ -29,6 +27,34 @@ const AboutPanel = dynamic(() => import('./components/AboutPanel'), { ssr: false
 
 export default function Home() {
   useAppBootstrap();
+
+  // 首屏稳定后在空闲时间预取各页面 chunk：切页时不再叠加代码加载延迟，
+  // 只剩数据等待（本地 invoke 很快）。用 idle + 兜底定时器双保险。
+  useEffect(() => {
+    let disposed = false;
+    const preload = () => {
+      if (disposed) return;
+      // 预取所有 next/dynamic 强拆的页面模块（首屏只渲染仪表盘）。
+      const pages = [
+        import('./components/AppUsagePage'),
+        import('./components/CalendarPage'),
+        import('./components/HardwarePage'),
+        import('./components/HealthPage'),
+        import('./components/GamesPage'),
+        import('./components/NetworkPage'),
+        import('./components/SettingsPage'),
+        import('./components/AboutPanel'),
+      ];
+      void Promise.allSettled(pages);
+    };
+    const idleId = window.requestIdleCallback?.(preload, { timeout: 1600 });
+    const fallbackTimer = window.setTimeout(preload, 1100);
+    return () => {
+      disposed = true;
+      if (idleId !== undefined) window.cancelIdleCallback?.(idleId);
+      window.clearTimeout(fallbackTimer);
+    };
+  }, []);
 
   const view = useAppStore(
     useShallow((state) => ({

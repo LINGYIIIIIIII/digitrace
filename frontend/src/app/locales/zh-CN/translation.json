@@ -93,6 +93,7 @@
       "diskTemp": "磁盘温度",
       "health": "健康提醒",
       "games": "游戏时长",
+      "watchedGames": "关注的游戏",
       "durationAgg": "时长聚合",
       "netAgg": "网络聚合",
       "hwAgg": "硬件聚合",
@@ -438,6 +439,7 @@
       "sortBy": "排序",
       "sortTotal": "累计时长（从长到短）",
       "sortToday": "今日时长（从长到短）",
+      "sortAlpha": "按名称（A-Z）",
       "manualAdd": "手动添加游戏",
       "manualAddDescription": "输入游戏名称与可执行文件路径（也可只填 exe 文件名，如 eldenring.exe）。",
       "manualTitlePlaceholder": "游戏名称，如：我的世界",
@@ -447,7 +449,14 @@
       "addFailed": "添加失败",
       "removed": "已移除",
       "removeFailed": "移除失败",
-      "manualEmpty": "游戏名称与路径不能为空"
+      "manualEmpty": "游戏名称与路径不能为空",
+      "watchedTitle": "关注的游戏",
+      "watchedDesc": "关注的游戏会置顶显示今日是否启动与游玩时长（仪表盘同步显示）。",
+      "watchedEmpty": "还没有关注任何游戏。在下方游戏库点星标即可关注。",
+      "watch": "关注",
+      "unwatch": "取消关注",
+      "launched": "今日已启动",
+      "notLaunched": "今日未启动"
     },
     "data": {
       "clearTitle": "清除所有数据",

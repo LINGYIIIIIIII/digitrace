@@ -72,6 +72,8 @@ pub struct GameRow {
     pub source: String,
     /// 平台应用 ID（Steam appid / Epic AppName）。
     pub appid: Option<String>,
+    /// 是否被用户「关注」（今日启动/时长置顶显示）。以 title 为唯一标识存储。
+    pub watched: bool,
 }
 
 // ── DataStore Trait ──
@@ -181,6 +183,12 @@ pub trait DataStore: Send + Sync {
         &self,
         entries: &[(String, String, String, String, Option<String>)],
     ) -> usize;
+
+    /// 设置某游戏（按 title）是否被关注。
+    fn set_game_watched(&self, title: &str, watched: bool);
+
+    /// 当前被关注的游戏 title 列表（去重、有序）。
+    fn watched_game_titles(&self) -> Vec<String>;
 
     // ── Recording Stats ──
 
