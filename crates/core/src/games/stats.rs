@@ -37,13 +37,11 @@ pub fn game_stats_periods(db: &dyn DataStore, games: &[GameRow]) -> GameStatsPer
         .recording_started_at()
         .map(|t| t.date_naive())
         .unwrap_or(year);
-    let sessions = db.get_sessions_by_range(total, today);
+    let sessions = db.get_playable_sessions_by_range(total, today);
     let index = GameMatchIndex::build(games);
     let mut out = GameStatsPeriods::default();
     for session in sessions {
-        if session.is_idle || session.duration_secs.unwrap_or(0) <= 0 {
-            continue;
-        }
+        // playable 查询已在 SQL 侧排除 idle / 零时长。
         let Some(game) = index.find(&session.app_path, &session.app_name) else {
             continue;
         };
@@ -72,13 +70,10 @@ pub fn game_stats_in_range(
     start: NaiveDate,
     end: NaiveDate,
 ) -> Vec<GameStat> {
-    let sessions = db.get_sessions_by_range(start, end);
+    let sessions = db.get_playable_sessions_by_range(start, end);
     let index = GameMatchIndex::build(games);
     let mut acc: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     for s in sessions {
-        if s.is_idle {
-            continue;
-        }
         let Some(d) = s.duration_secs else {
             continue;
         };

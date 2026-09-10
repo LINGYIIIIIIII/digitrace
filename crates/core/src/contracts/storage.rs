@@ -108,6 +108,14 @@ pub trait DataStore: Send + Sync {
     /// Get all sessions in a date range (inclusive).
     fn get_sessions_by_range(&self, start: NaiveDate, end: NaiveDate) -> Vec<SessionRecord>;
 
+    /// 日期范围内「可计入时长」的会话：SQL 侧过滤 `is_idle = 0 AND duration_secs > 0`。
+    /// 供游戏统计等热路径使用，避免把 idle/零时长行也解密进内存。
+    fn get_playable_sessions_by_range(
+        &self,
+        start: NaiveDate,
+        end: NaiveDate,
+    ) -> Vec<SessionRecord>;
+
     /// Get aggregated usage summary for a single day.
     fn get_daily_summary(&self, date: NaiveDate) -> Vec<AppUsageSummary>;
 

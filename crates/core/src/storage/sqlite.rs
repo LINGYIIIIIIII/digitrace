@@ -160,7 +160,7 @@ fn dec_str(s: String) -> String {
 
 /// 把数据库里残留的旧明文敏感字段一次性加密。
 /// 幂等：只处理无 `dpapi:` / `aes:` 前缀的行。
-/// 分批 + 事务：避免大库启动时整表进内存、逐条 autocommit 卡顿。
+/// id 游标分页 + 500 条事务：避免大库启动时整表进内存、逐条 autocommit 卡顿。
 fn encrypt_legacy_sensitive_fields(conn: &Connection) -> Result<(), rusqlite::Error> {
     const BATCH: usize = 500;
     let mut updated: u64 = 0;
@@ -173,23 +173,28 @@ fn encrypt_legacy_sensitive_fields(conn: &Connection) -> Result<(), rusqlite::Er
         ("diary_entries", "content"),
     ] {
         let select_sql = format!(
-            "SELECT id, {col} FROM {table} WHERE {col} IS NOT NULL AND {col} != ''
-             AND {col} NOT LIKE 'dpapi:%' AND {col} NOT LIKE 'aes:%'"
+            "SELECT id, {col} FROM {table}
+             WHERE id > ?2 AND {col} IS NOT NULL AND {col} != ''
+               AND {col} NOT LIKE 'dpapi:%' AND {col} NOT LIKE 'aes:%'
+             ORDER BY id LIMIT ?1"
         );
-        let mut stmt = conn.prepare(&select_sql)?;
-        let rows: Vec<(i64, String)> = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .filter_map(|r| r.ok())
-            .collect();
-        drop(stmt);
-        if rows.is_empty() {
-            continue;
-        }
         let update_sql = format!("UPDATE {table} SET {col} = ?1 WHERE id = ?2");
-        for chunk in rows.chunks(BATCH) {
+        let mut cursor: i64 = 0;
+        loop {
+            let mut stmt = conn.prepare(&select_sql)?;
+            let rows: Vec<(i64, String)> = stmt
+                .query_map(params![BATCH as i64, cursor], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            drop(stmt);
+            if rows.is_empty() {
+                break;
+            }
             let tx = conn.unchecked_transaction()?;
             let mut n = 0u64;
-            for (id, plain) in chunk {
+            for (id, plain) in &rows {
                 if let Ok(enc) = security::field_encrypt(plain)
                     && tx.execute(&update_sql, params![enc, id]).is_ok()
                 {
@@ -198,6 +203,11 @@ fn encrypt_legacy_sensitive_fields(conn: &Connection) -> Result<(), rusqlite::Er
             }
             tx.commit()?;
             updated += n;
+            cursor = rows.last().map(|(id, _)| *id).unwrap_or(cursor);
+            if rows.len() < BATCH || n == 0 {
+                // 取不满一页说明到底；整批加密失败则密钥异常，停止空转。
+                break;
+            }
         }
     }
     if updated > 0 {
@@ -300,6 +310,28 @@ impl DataStore for SqliteStore {
             }) {
                 out.extend(rows.filter_map(|r| r.ok()));
             }
+        out
+    }
+
+    fn get_playable_sessions_by_range(
+        &self,
+        start: NaiveDate,
+        end: NaiveDate,
+    ) -> Vec<SessionRecord> {
+        let conn = self.lock();
+        let mut out = Vec::new();
+        // SQL 预过滤 idle / 零时长，减少密文字段解密行数（大库游戏统计热路径）。
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT id, app_path, app_name, window_title, started_at, ended_at, duration_secs, is_idle, date
+             FROM usage_sessions
+             WHERE date >= ?1 AND date <= ?2
+               AND is_idle = 0 AND duration_secs > 0
+             ORDER BY started_at",
+        ) && let Ok(rows) =
+            stmt.query_map(params![start.to_string(), end.to_string()], Self::row_to_session)
+        {
+            out.extend(rows.filter_map(|r| r.ok()));
+        }
         out
     }
 
@@ -1396,6 +1428,22 @@ impl DataStore for MemoryStore {
             .unwrap()
             .iter()
             .filter(|s| s.date >= start && s.date <= end)
+            .cloned()
+            .collect()
+    }
+
+    fn get_playable_sessions_by_range(
+        &self,
+        start: NaiveDate,
+        end: NaiveDate,
+    ) -> Vec<SessionRecord> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| {
+                s.date >= start && s.date <= end && !s.is_idle && s.duration_secs.unwrap_or(0) > 0
+            })
             .cloned()
             .collect()
     }
