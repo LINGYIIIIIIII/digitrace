@@ -85,6 +85,91 @@ pub fn game_row_matches(row: &GameRow, app_path: &str, app_name: &str) -> bool {
         || (!row.app_name.is_empty() && app_name.eq_ignore_ascii_case(&row.app_name))
 }
 
+/// 会话 → 游戏条目的查找索引。
+///
+/// 语义与 [`game_row_matches`] 完全一致，只是把 O(n) 线性扫描换成
+/// 精确路径 / stem / app_name 的哈希命中；目录前缀兜底只扫带目录的条目
+/// （通常很少）。用于全历史会话聚合等热路径。
+pub struct GameMatchIndex<'a> {
+    games: &'a [GameRow],
+    /// 规范化 exe_path → 条目下标（精确路径命中）。
+    path: std::collections::HashMap<String, usize>,
+    /// 小写 stem → 无目录条目下标列表（known / 手动简写）。
+    stem: std::collections::HashMap<String, Vec<usize>>,
+    /// 小写 app_name → 条目下标列表。
+    app_name: std::collections::HashMap<String, Vec<usize>>,
+    /// 含目录的条目下标（仅这些需要 path_under 前缀扫描）。
+    with_dir: Vec<usize>,
+}
+
+impl<'a> GameMatchIndex<'a> {
+    pub fn build(games: &'a [GameRow]) -> Self {
+        let mut path = std::collections::HashMap::new();
+        let mut stem = std::collections::HashMap::new();
+        let mut app_name = std::collections::HashMap::new();
+        let mut with_dir = Vec::new();
+        for (i, g) in games.iter().enumerate() {
+            let has_dir = g.exe_path.contains('\\') || g.exe_path.contains('/');
+            if has_dir {
+                with_dir.push(i);
+                path.insert(platform::normalize_path(&g.exe_path), i);
+            } else {
+                let key = g.exe_path.trim_end_matches(".exe").to_ascii_lowercase();
+                stem.entry(key).or_insert_with(Vec::new).push(i);
+            }
+            if !g.app_name.is_empty() {
+                app_name
+                    .entry(g.app_name.to_ascii_lowercase())
+                    .or_insert_with(Vec::new)
+                    .push(i);
+            }
+        }
+        Self {
+            games,
+            path,
+            stem,
+            app_name,
+            with_dir,
+        }
+    }
+
+    /// 与 [`game_row_matches`] 同语义；命中则返回条目引用。
+    pub fn find(&self, app_path: &str, app_name: &str) -> Option<&'a GameRow> {
+        let norm = platform::normalize_path(app_path);
+        if let Some(&i) = self.path.get(&norm) {
+            return Some(&self.games[i]);
+        }
+        let stem_key = exe_stem(app_path).to_ascii_lowercase();
+        if let Some(list) = self.stem.get(&stem_key) {
+            for &i in list {
+                let row = &self.games[i];
+                if game_row_matches(row, app_path, app_name) {
+                    return Some(row);
+                }
+            }
+        }
+        if !app_name.is_empty() {
+            let name_key = app_name.to_ascii_lowercase();
+            if let Some(list) = self.app_name.get(&name_key) {
+                for &i in list {
+                    let row = &self.games[i];
+                    if game_row_matches(row, app_path, app_name) {
+                        return Some(row);
+                    }
+                }
+            }
+        }
+        // 目录前缀兜底：仅扫描带目录的条目。
+        for &i in &self.with_dir {
+            let row = &self.games[i];
+            if path_under(app_path, &row.exe_path) {
+                return Some(row);
+            }
+        }
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,5 +275,37 @@ mod tests {
         assert!(path_under(r"D:\Games\Game1\x.exe", r"D:\Games\Game1\"));
         assert!(!path_under(r"D:\Games\Game10\x.exe", r"D:\Games\Game1"));
         assert!(!path_under(r"D:\Games\x.exe", r"D:\Games\Game1"));
+    }
+
+    #[test]
+    fn match_index_agrees_with_linear() {
+        let games = vec![
+            row(r"D:\Steam\common\ELDEN RING\Game\eldenring.exe", ""),
+            row("starrail", "starrail"),
+            row(r"D:\Games\Genshin", ""),
+            row(r"C:\unknown\path\game.exe", "艾尔登法环"),
+        ];
+        let index = GameMatchIndex::build(&games);
+        let cases: &[(&str, &str)] = &[
+            (
+                r"D:\Steam\common\ELDEN RING\Game\eldenring.exe",
+                "eldenring",
+            ),
+            (r"d:\steam\common\elden ring\game\ELDENRING.EXE", "x"),
+            (r"D:\Games\StarRail\StarRail.exe", "starrail"),
+            (r"D:\Games\Genshin\GenshinImpact.exe", ""),
+            (r"C:\unknown\path\game.exe", "艾尔登法环"),
+            (r"C:\other\game.exe", "艾尔登法环"),
+            (r"C:\nope\chrome.exe", "chrome"),
+        ];
+        for &(path, name) in cases {
+            let linear = games.iter().find(|g| game_row_matches(g, path, name));
+            let hashed = index.find(path, name);
+            assert_eq!(
+                linear.map(|g| g.exe_path.as_str()),
+                hashed.map(|g| g.exe_path.as_str()),
+                "mismatch for {path} / {name}"
+            );
+        }
     }
 }

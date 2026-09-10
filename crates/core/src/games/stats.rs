@@ -7,6 +7,7 @@ use chrono::{Datelike, Duration, Local, NaiveDate};
 use std::collections::HashMap;
 
 use crate::contracts::{DataStore, GameRow};
+use crate::games::GameMatchIndex;
 
 /// 一个游戏的时长统计。
 #[derive(Debug, Clone)]
@@ -37,15 +38,13 @@ pub fn game_stats_periods(db: &dyn DataStore, games: &[GameRow]) -> GameStatsPer
         .map(|t| t.date_naive())
         .unwrap_or(year);
     let sessions = db.get_sessions_by_range(total, today);
+    let index = GameMatchIndex::build(games);
     let mut out = GameStatsPeriods::default();
     for session in sessions {
         if session.is_idle || session.duration_secs.unwrap_or(0) <= 0 {
             continue;
         }
-        let Some(game) = games
-            .iter()
-            .find(|g| crate::games::game_row_matches(g, &session.app_path, &session.app_name))
-        else {
+        let Some(game) = index.find(&session.app_path, &session.app_name) else {
             continue;
         };
         let seconds = session.duration_secs.unwrap_or(0);
@@ -74,6 +73,7 @@ pub fn game_stats_in_range(
     end: NaiveDate,
 ) -> Vec<GameStat> {
     let sessions = db.get_sessions_by_range(start, end);
+    let index = GameMatchIndex::build(games);
     let mut acc: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     for s in sessions {
         if s.is_idle {
@@ -85,7 +85,7 @@ pub fn game_stats_in_range(
         if d <= 0 {
             continue;
         }
-        if let Some(row) = match_game(games, &s.app_path, &s.app_name) {
+        if let Some(row) = index.find(&s.app_path, &s.app_name) {
             *acc.entry(row.title.clone()).or_insert(0) += d;
         }
     }
@@ -139,13 +139,10 @@ pub fn current_game<'a>(games: &'a [GameRow], db: &dyn DataStore) -> Option<&'a 
     if session.is_idle {
         return None;
     }
-    match_game(games, &session.app_path, &session.app_name)
-}
-
-fn match_game<'a>(games: &'a [GameRow], app_path: &str, app_name: &str) -> Option<&'a GameRow> {
+    // 单次匹配：库通常不大，索引构建成本可能高于线性扫。
     games
         .iter()
-        .find(|g| crate::games::game_row_matches(g, app_path, app_name))
+        .find(|g| crate::games::game_row_matches(g, &session.app_path, &session.app_name))
 }
 
 #[cfg(test)]

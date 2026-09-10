@@ -41,17 +41,7 @@ pub fn scan_all_platforms() -> Vec<FoundGame> {
 /// 读取 Steam 各 userdata 的 shortcuts.vdf，返回「游戏名 → 启动 exe 路径」。
 /// 只保留「已知游戏 exe 名」命中的，避免把无关快捷方式塞进游戏库。
 fn scan_steam_shortcuts() -> Vec<FoundGame> {
-    use winreg::RegKey;
-    use winreg::enums::HKEY_CURRENT_USER;
-    let Some(root) = (|| {
-        if let Ok(steam) = RegKey::predef(HKEY_CURRENT_USER).open_subkey("Software\\Valve\\Steam")
-            && let Ok(p) = steam.get_value::<String, _>("SteamPath")
-            && !p.is_empty()
-        {
-            return Some(PathBuf::from(p));
-        }
-        None
-    })() else {
+    let Some(root) = steam_root() else {
         return Vec::new();
     };
     let userdata = root.join("userdata");
@@ -175,8 +165,9 @@ fn steam_root() -> Option<PathBuf> {
     None
 }
 
-/// 扫描 Steam 已安装游戏。返回 (title, appid, installdir) 列表。
-fn steam_installed(root: &Path) -> Vec<(String, String, String)> {
+/// 解析 Steam 库根目录列表：主库 + libraryfolders.vdf 里声明的其它库。
+/// 同一次扫描只读一次 vdf，避免外层对每个游戏重复解析。
+fn steam_libraries(root: &Path) -> Vec<PathBuf> {
     let mut libs = vec![root.to_path_buf()];
     let vdf = root.join("steamapps").join("libraryfolders.vdf");
     if let Ok(text) = std::fs::read_to_string(&vdf) {
@@ -189,6 +180,11 @@ fn steam_installed(root: &Path) -> Vec<(String, String, String)> {
             }
         }
     }
+    libs
+}
+
+/// 扫描 Steam 已安装游戏。返回 (title, appid, installdir) 列表。
+fn steam_installed(libs: &[PathBuf]) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
     for lib in libs {
         let apps_dir = lib.join("steamapps");
@@ -228,29 +224,17 @@ pub fn scan_steam_games() -> Vec<FoundGame> {
     let Some(root) = steam_root() else {
         return Vec::new();
     };
+    let libs = steam_libraries(&root);
     let mut out = Vec::new();
-    for (title, appid, installdir) in steam_installed(&root) {
+    for (title, appid, installdir) in steam_installed(&libs) {
         // 跳过 Steam 上的非游戏应用/工具（如 Wallpaper Engine 动态壁纸），
         // 它们会往游戏库塞大量无关 exe（applicationwallpaperinject32 等）。
         let il = installdir.to_lowercase();
         if NON_GAME_STEAM_DIRS.iter().any(|d| il.contains(d)) {
             continue;
         }
-        // 每个库根目录下 common/<installdir> 都可能是游戏位置
-        let mut found_any = false;
-        let mut libs = vec![root.to_path_buf()];
-        if let Ok(text) = std::fs::read_to_string(root.join("steamapps").join("libraryfolders.vdf"))
-        {
-            for (k, v) in parse_vdf_pairs(&text) {
-                if k == "path" && !v.is_empty() {
-                    let p = PathBuf::from(v.replace("\\\\", "\\"));
-                    if !libs.iter().any(|l| l == &p) {
-                        libs.push(p);
-                    }
-                }
-            }
-        }
-        for lib in libs {
+        // 每个库根目录下 common/<installdir> 都可能是游戏位置；命中主 exe 即停。
+        for lib in &libs {
             let common = lib.join("steamapps").join("common").join(&installdir);
             // 只取一个「主 exe」而非目录下全部 exe：很多游戏目录会混入
             // helper/引擎组件等额外 exe，全收会导致游戏库出现大量同名/无关条目。
@@ -277,10 +261,10 @@ pub fn scan_steam_games() -> Vec<FoundGame> {
                     source: "steam",
                     appid: Some(appid.clone()),
                 });
-                found_any = true;
+                break;
             }
             // 找不到 exe 时用安装目录兜底（目录前缀匹配）
-            if !found_any && common.exists() {
+            if common.exists() {
                 out.push(FoundGame {
                     title: title.clone(),
                     exe_path: common.to_string_lossy().into_owned(),
@@ -288,6 +272,7 @@ pub fn scan_steam_games() -> Vec<FoundGame> {
                     source: "steam",
                     appid: Some(appid.clone()),
                 });
+                break;
             }
         }
     }

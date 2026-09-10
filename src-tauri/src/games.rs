@@ -4,6 +4,7 @@
 //! - 连续游戏提醒：后台线程 5 秒 tick，读当前未关闭会话 → 命中游戏且未空闲 → 累计连续时长，
 //!   到阈值弹 Windows 原生通知并归零。纯内存状态（重启重新计时），失败静默，不影响主流程。
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -16,6 +17,10 @@ use crate::health::show_toast;
 use crate::state::AppState;
 
 const TICK_SECONDS: u64 = 5;
+/// 游戏库列表缓存 TTL：扫描/增删后立即失效，TTL 兜底防漏。
+const GAMES_CACHE_TTL: Duration = Duration::from_secs(30);
+/// 配置缓存 TTL：避免提醒线程每 5s 解密读盘。
+const CONFIG_CACHE_TTL: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Default)]
 struct GameState {
@@ -23,10 +28,29 @@ struct GameState {
     streak_seconds: u64,
     reminders_today: u32,
     day: String,
+    /// 最近一次 tick 结算的今日游戏总时长（snapshot 复用）。
+    today_seconds: i64,
+    today_games_loaded_at: Option<Instant>,
+}
+
+/// 游戏库 / 配置的短 TTL 缓存；库变更命令会标记 dirty。
+#[derive(Default)]
+struct SharedCache {
+    games: Option<(Vec<timetrace_core::GameRow>, Instant)>,
+    config: Option<(AppConfig, Instant)>,
+}
+
+/// 游戏库写路径（刷新/增删/关注）后置位，提醒线程下次 tick 强制重载。
+static GAMES_DIRTY: AtomicBool = AtomicBool::new(false);
+
+/// 游戏库写路径后调用，使提醒线程下次 tick 重新加载。
+pub fn invalidate_games_cache() {
+    GAMES_DIRTY.store(true, Ordering::Relaxed);
 }
 
 pub struct GameTracker {
     state: Arc<Mutex<GameState>>,
+    cache: Arc<Mutex<SharedCache>>,
 }
 
 impl GameTracker {
@@ -34,6 +58,7 @@ impl GameTracker {
     pub fn start(app: AppHandle) -> Arc<Self> {
         let tracker = Arc::new(Self {
             state: Arc::new(Mutex::new(GameState::default())),
+            cache: Arc::new(Mutex::new(SharedCache::default())),
         });
         let runner = tracker.clone();
         std::thread::spawn(move || loop {
@@ -43,8 +68,44 @@ impl GameTracker {
         tracker
     }
 
+    fn load_config_cached(&self) -> AppConfig {
+        let now = Instant::now();
+        if let Ok(mut c) = self.cache.lock() {
+            if let Some((cfg, at)) = &c.config {
+                if now.duration_since(*at) < CONFIG_CACHE_TTL {
+                    return cfg.clone();
+                }
+            }
+            let cfg = AppConfig::load();
+            c.config = Some((cfg.clone(), now));
+            return cfg;
+        }
+        AppConfig::load()
+    }
+
+    fn visible_games_cached(
+        &self,
+        db: &timetrace_core::SqliteStore,
+    ) -> Vec<timetrace_core::GameRow> {
+        let now = Instant::now();
+        let dirty = GAMES_DIRTY.swap(false, Ordering::Relaxed);
+        if let Ok(mut c) = self.cache.lock() {
+            if !dirty {
+                if let Some((games, at)) = &c.games {
+                    if now.duration_since(*at) < GAMES_CACHE_TTL {
+                        return games.clone();
+                    }
+                }
+            }
+            let games = visible_game_entries(db);
+            c.games = Some((games.clone(), now));
+            return games;
+        }
+        visible_game_entries(db)
+    }
+
     fn tick(&self, app: &AppHandle) {
-        let config = AppConfig::load();
+        let config = self.load_config_cached();
         let reminder_minutes = config.games.games_reminder_minutes.clamp(15, 1440);
         let mut state = match self.state.lock() {
             Ok(s) => s,
@@ -55,6 +116,8 @@ impl GameTracker {
         if state.day != today {
             state.day = today;
             state.reminders_today = 0;
+            state.today_seconds = 0;
+            state.today_games_loaded_at = None;
         }
         if !config.games.games_reminder_enabled {
             state.streak_seconds = 0;
@@ -69,8 +132,21 @@ impl GameTracker {
             let Ok(api) = app_state.api.lock() else {
                 return;
             };
-            let games = visible_game_entries(&api.db());
-            stats::current_game(&games, &*api.db()).is_some()
+            let games = self.visible_games_cached(&api.db());
+            let is_playing = stats::current_game(&games, &*api.db()).is_some();
+            // 今日总时长一并结算，snapshot 可复用，避免再扫一遍库。
+            if state
+                .today_games_loaded_at
+                .map(|t| t.elapsed() >= GAMES_CACHE_TTL)
+                .unwrap_or(true)
+            {
+                state.today_seconds = stats::game_stats_today(&*api.db(), &games)
+                    .iter()
+                    .map(|s| s.seconds)
+                    .sum();
+                state.today_games_loaded_at = Some(Instant::now());
+            }
+            is_playing
         };
         if !playing {
             // 没在玩游戏：连续计时归零。
@@ -107,7 +183,7 @@ impl GameTracker {
 
     /// 前端快照：当前游戏 / 连续时长 / 今日游戏时长 / 下次提醒倒计时。
     pub fn snapshot(&self, app: &AppHandle) -> GameSnapshotDto {
-        let config = AppConfig::load();
+        let config = self.load_config_cached();
         let reminder_minutes = config.games.games_reminder_minutes.clamp(15, 1440);
         let (current_game, today_seconds) = {
             let Some(app_state) = app.try_state::<AppState>() else {
@@ -132,12 +208,22 @@ impl GameTracker {
                     next_reminder_seconds: reminder_minutes as i64 * 60,
                 };
             };
-            let games = visible_game_entries(&api.db());
+            let games = self.visible_games_cached(&api.db());
             let current = stats::current_game(&games, &*api.db()).map(|g| g.title.clone());
-            let today_total: i64 = stats::game_stats_today(&*api.db(), &games)
-                .iter()
-                .map(|s| s.seconds)
-                .sum();
+            // 今日总时长优先用 tick 缓存，过期或脏则现算一次。
+            let today_total = match self.state.lock() {
+                Ok(s)
+                    if s.today_games_loaded_at
+                        .map(|t| t.elapsed() < GAMES_CACHE_TTL)
+                        .unwrap_or(false) =>
+                {
+                    s.today_seconds
+                }
+                _ => stats::game_stats_today(&*api.db(), &games)
+                    .iter()
+                    .map(|s| s.seconds)
+                    .sum(),
+            };
             (current, today_total)
         };
         let state = match self.state.lock() {
@@ -254,6 +340,7 @@ pub async fn refresh_game_library(app: AppHandle) -> GameLibraryResultDto {
             })
             .collect();
         let written = db.replace_non_manual_games(&entries);
+        invalidate_games_cache();
         GameLibraryResultDto {
             ok: true,
             found: written,
@@ -289,6 +376,7 @@ pub fn add_game_manual(
         .db()
         .insert_game_entry(&title, &exe_path, "", "manual", None);
     if id > 0 {
+        invalidate_games_cache();
         GameLibraryResultDto {
             ok: true,
             found: 1,
@@ -308,6 +396,7 @@ pub fn add_game_manual(
 pub fn remove_game(state: State<'_, AppState>, id: i64) -> GameLibraryResultDto {
     let api = crate::api::lock(&state);
     if api.db().delete_game_entry(id) {
+        invalidate_games_cache();
         GameLibraryResultDto {
             ok: true,
             found: 0,
@@ -334,6 +423,7 @@ pub fn set_game_watched(state: State<'_, AppState>, id: i64, watched: bool) -> b
         .map(|g| g.title.clone());
     if let Some(title) = title {
         api.db().set_game_watched(&title, watched);
+        invalidate_games_cache();
         true
     } else {
         false

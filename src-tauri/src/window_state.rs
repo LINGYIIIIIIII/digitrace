@@ -5,7 +5,7 @@
 //! 最大化状态单独记录，下次启动按原样恢复。
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -50,7 +50,8 @@ fn sanitize(mut state: WindowState) -> WindowState {
     state
 }
 
-static SAVE_PENDING: AtomicBool = AtomicBool::new(false);
+/// 防抖代数：每次 schedule 递增；sleep 结束后若代数已变则说明期间还有移动，重睡。
+static SAVE_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 fn state_path() -> PathBuf {
     dirs::config_dir()
@@ -67,8 +68,21 @@ pub fn load() -> WindowState {
 }
 
 fn save(state: &WindowState) {
-    if let Ok(json) = serde_json::to_string_pretty(state) {
-        let _ = std::fs::write(state_path(), json);
+    let Ok(json) = serde_json::to_string_pretty(state) else {
+        return;
+    };
+    let path = state_path();
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, &json).is_err() {
+        // 临时文件写失败时回退直接写，尽量保住状态。
+        let _ = std::fs::write(&path, json);
+        return;
+    }
+    // Windows 上 rename 到已存在文件会失败，先删目标再改名。
+    let _ = std::fs::remove_file(&path);
+    if std::fs::rename(&tmp, &path).is_err() {
+        let _ = std::fs::write(&path, json);
+        let _ = std::fs::remove_file(&tmp);
     }
 }
 
@@ -97,15 +111,23 @@ fn capture<R: Runtime>(window: &WebviewWindow<R>, mut current: WindowState) -> W
     current
 }
 
-/// 窗口移动/缩放后延迟合并保存（800ms 防抖，拖动时不会频繁写文件）。
+/// 窗口移动/缩放后延迟合并保存（800ms 真 debounce：期间若再次移动则重睡）。
 pub fn schedule_save(app: &AppHandle) {
-    if SAVE_PENDING.swap(true, Ordering::Relaxed) {
-        return;
-    }
+    let gen = SAVE_GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
     let app = app.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(800));
-        SAVE_PENDING.store(false, Ordering::Relaxed);
+        let mut waited = 0u64;
+        while waited < 800 {
+            std::thread::sleep(Duration::from_millis(200));
+            waited += 200;
+            // 期间又有新的移动/缩放：交给更新的那次 schedule。
+            if SAVE_GENERATION.load(Ordering::Relaxed) != gen {
+                return;
+            }
+        }
+        if SAVE_GENERATION.load(Ordering::Relaxed) != gen {
+            return;
+        }
         if let Some(window) = app.get_webview_window("main") {
             let merged = capture(&window, load());
             save(&merged);

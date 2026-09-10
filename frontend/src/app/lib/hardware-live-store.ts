@@ -1,5 +1,6 @@
 // 硬件实时数据共享单例：仪表盘多张卡与硬件页共用同一轮询器。
 // 先发布 CPU/内存快照，再异步补温度，避免慢传感器阻塞首屏。
+// 调度：链式 setTimeout（按 live_refresh 对齐），页面 hidden 时暂停。
 import { useSyncExternalStore } from 'react';
 import { apiService } from '../services/api';
 import { useAppStore } from '../store/app-store';
@@ -22,9 +23,14 @@ const listeners = new Set<() => void>();
 let timer: number | null = null;
 let inFlight = false;
 let lastFetch = 0;
+let visibilityBound = false;
 
 function emit() {
   listeners.forEach((listener) => listener());
+}
+
+function refreshSeconds(): number {
+  return useAppStore.getState().config?.live_refresh_interval_seconds ?? 1;
 }
 
 async function tick() {
@@ -43,34 +49,63 @@ async function tick() {
       state = { ...state, temp, sampleId: state.sampleId + 1 };
       emit();
     } catch {
-      state = { ...state, sampleId: state.sampleId + 1 };
-      emit();
+      // 温度失败：保留旧 temp，不 bump sampleId，避免无意义重绘。
     }
   } catch {
     state = { ...state, error: true };
     emit();
   } finally {
     inFlight = false;
+    lastFetch = Date.now();
   }
 }
 
-function startPolling() {
-  if (timer !== null) return;
-  const loop = () => {
-    const refreshSeconds = useAppStore.getState().config?.live_refresh_interval_seconds ?? 1;
-    const now = Date.now();
-    if (now - lastFetch >= refreshSeconds * 1000) {
-      lastFetch = now;
-      void tick();
+function scheduleNext() {
+  if (timer !== null) window.clearTimeout(timer);
+  if (listeners.size === 0) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+  const gap = refreshSeconds() * 1000;
+  const wait = Math.max(0, gap - (Date.now() - lastFetch));
+  timer = window.setTimeout(async () => {
+    timer = null;
+    if (listeners.size === 0) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
+    await tick();
+    scheduleNext();
+  }, wait);
+}
+
+function onVisibility() {
+  if (typeof document === 'undefined') return;
+  if (document.hidden) {
+    if (timer !== null) {
+      window.clearTimeout(timer);
+      timer = null;
     }
-  };
-  void loop();
-  timer = window.setInterval(loop, 250);
+    return;
+  }
+  if (listeners.size > 0) {
+    void tick().finally(scheduleNext);
+  }
+}
+
+function bindVisibility() {
+  if (visibilityBound || typeof document === 'undefined') return;
+  document.addEventListener('visibilitychange', onVisibility);
+  visibilityBound = true;
+}
+
+function startPolling() {
+  bindVisibility();
+  if (timer !== null || inFlight) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+  void tick().finally(scheduleNext);
 }
 
 function stopPolling() {
-  if (timer !== null && listeners.size === 0) {
-    window.clearInterval(timer);
+  if (listeners.size > 0) return;
+  if (timer !== null) {
+    window.clearTimeout(timer);
     timer = null;
   }
 }
@@ -88,7 +123,7 @@ function getSnapshot() {
   return state;
 }
 
-/** 共享硬件快照；sampleId 仅在一轮温度补采完成后递增。 */
+/** 共享硬件快照；sampleId 仅在温度补采成功后递增。 */
 export function useHardwareLiveShared() {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
