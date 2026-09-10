@@ -2,13 +2,21 @@
 
 按版本归档每次功能更新与修复（最新在前）。纯构建产物更新不单独记录。
 
-## v2.31.3（2026-08-19）
+## v2.31.3（2026-08-19，性能收口 2026-09-10）
 - **窗口透明材质修复**：深色主题下真正透出 DWM 材质（Mica/Acrylic），不再压成纯黑。
   - Rust `apply_backdrop` 不再静默吞掉 `DwmSetWindowAttribute` 错误（失败时写入运行日志）；
     补充 `DWMWA_USE_IMMERSIVE_DARK_MODE`——之前未设置该项，深色主题下 DWM 按浅色/
     错色渲染，是黑屏的常见根因之一；同时设置 `DWMWA_WINDOW_CORNER_PREFERENCE` 圆角。
   - 深色玻璃面 `--mica-content-surface` 与洗层不再直接用近纯黑 `--background`，
     改为亮度更高、更透明的配方，让材质模糊与桌面色调能透出。
+- **游戏统计性能**：会话→游戏匹配改为 `GameMatchIndex`（精确路径 / stem / app_name 哈希，
+  目录条目再前缀扫描）；可玩会话在 SQL 侧排除 idle 与零时长，减少解密行数。
+- **Steam 扫描**：`libraryfolders.vdf` 单次解析复用；多库查找主 exe 命中即停。
+- **游戏提醒线程**：游戏库与配置 30s TTL 缓存，库变更命令立即失效；避免每 5s 全表读与解密读盘。
+- **硬件实时轮询**：改为按刷新间隔的链式 `setTimeout`；页面 `document.hidden` 时暂停。
+- **窗口状态保存**：真 debounce（generation）+ 临时文件原子写，避免拖动末态丢失。
+- **敏感字段迁移**：启动加密迁移改为游标分页 + 每批 500 条事务提交。
+- **仓库卫生**：忽略 `outputs/`、`target-blur/`、`target-verify/`；前端接入 ESLint/Prettier/Playwright 冒烟。
 
 ## v2.31.2（2026-08-19）
 - **硬件页首屏性能**：仪表盘与硬件页共享单例轮询，先显示 CPU/内存再异步补采温度，延后磁盘健康查询，并在首屏空闲时预取硬件页代码，减少进入硬件页的等待。
