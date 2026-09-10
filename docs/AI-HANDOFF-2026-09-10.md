@@ -84,13 +84,15 @@ frontend/.next 111/
 
 ---
 
-### 2.3 性能与逻辑优化（3 个提交，P1–P6）
+### 2.3 性能与逻辑优化（P1–P6 及后续）
 
 | 提交 | 对应规划 | 内容 |
 |---|---|---|
 | `6ea1301` | P1–P5 | Steam 库复用、`GameMatchIndex`、Tracker 缓存骨架、硬件 hidden 暂停、窗口 generation debounce |
 | `26bc88f` | P3/P6 | GameTracker 锁序与缓存完善、迁移分批 |
 | `7475872` | P2/P6 加强 | `get_playable_sessions_by_range` SQL 预过滤、迁移游标分页 |
+| `9683ce6` | 文档 | 本 AI-HANDOFF、交接清单抬头、CHANGELOG 性能收口 |
+| `69618d2` | 可观测性 | `encrypt_fallback_count()`：加密失败回退明文计数并导出 |
 
 #### P1 — Steam 库复用（`platform.rs`）
 
@@ -153,6 +155,8 @@ git status                               clean
 ## 4. 本地提交清单（均未 push）
 
 ```text
+69618d2 feat: 敏感字段加密回退可观测计数
+9683ce6 docs: AI 交接文档与 2026-09-10 整理/优化记录
 7475872 perf: 游戏统计 SQL 预过滤与加密迁移游标分页
 26bc88f fix: 统一 GameTracker 锁序并分批迁移敏感字段
 6ea1301 perf: 游戏匹配索引、Steam 库复用、提醒缓存与窗口/硬件调度
@@ -184,6 +188,7 @@ git push origin v2.31.3
 | 周期统计 | `crates/core/src/games/stats.rs` → `game_stats_periods` |
 | 可玩会话查询 | `crates/core/src/storage/sqlite.rs` → `get_playable_sessions_by_range` |
 | 敏感迁移 | 同文件 → `encrypt_legacy_sensitive_fields`（BATCH/游标） |
+| 加密回退计数 | 同文件 → `encrypt_fallback_count()`；`lib.rs` 再导出 |
 | 提醒与缓存 | `src-tauri/src/games.rs` → `GameTracker` / `SharedCache` |
 | 窗口状态 | `src-tauri/src/window_state.rs` |
 | 硬件轮询 | `frontend/src/app/lib/hardware-live-store.ts` |
@@ -209,7 +214,7 @@ git push origin v2.31.3
 ### 产品 / 隐私
 
 - [ ] 「敏感字段全加密」与库表实际范围的产品口径  
-- [ ] `enc_str` 失败静默回退明文，无 UI/指标  
+- [ ] ~~`enc_str` 失败静默回退明文，无 UI/指标~~ → 已有 `encrypt_fallback_count()`；**UI 展示仍待做**  
 - [ ] `watched_games` 仍按 title 明文，改名会丢关注  
 - [ ] 部分历史版本 Release notes 缺口  
 
