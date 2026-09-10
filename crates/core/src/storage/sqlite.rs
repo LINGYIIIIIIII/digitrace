@@ -143,8 +143,17 @@ impl SqliteStore {
 
 // ── 敏感字段加解密辅助（DPAPI，见 security.rs）──
 
+/// 加密失败回退明文的累计次数（可观测：隐私降级不应完全静默）。
+static ENCRYPT_FALLBACKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 进程内敏感字段加密失败回退明文次数。
+pub fn encrypt_fallback_count() -> u64 {
+    ENCRYPT_FALLBACKS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn enc_str(s: &str) -> String {
     security::field_encrypt(s).unwrap_or_else(|e| {
+        ENCRYPT_FALLBACKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         warn!("敏感字段加密失败，回退明文存储：{e}");
         s.to_string()
     })
@@ -1820,6 +1829,15 @@ mod tests {
         let id = store.insert_session(&make_session("TestApp", Utc::now(), None, false));
         assert!(id > 0);
         assert!(store.get_active_session().is_some());
+    }
+
+    #[test]
+    fn encrypt_fallback_counter_exported_and_stable_on_success() {
+        let before = encrypt_fallback_count();
+        // 正常加密成功不应计入回退
+        let enc = crate::security::field_encrypt("ok").expect("field_encrypt");
+        assert!(enc.starts_with("aes:") || enc.starts_with("dpapi:"));
+        assert_eq!(encrypt_fallback_count(), before);
     }
 
     #[test]

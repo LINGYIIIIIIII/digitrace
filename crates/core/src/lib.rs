@@ -39,3 +39,4 @@ pub use error::AppError;
 pub use monitor::{MonitorCore, NetworkSnapshot, WindowsCollector};
 pub use oplog::{clear, log_event, log_path, tail_lines};
 pub use storage::SqliteStore;
+pub use storage::sqlite::encrypt_fallback_count;
