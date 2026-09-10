@@ -104,28 +104,39 @@ impl GameTracker {
         visible_game_entries(db)
     }
 
+    /// tick / snapshot 统一锁序：**先 api，后 state**。
+    /// 持 `state` 锁期间绝不做 DB，避免与 snapshot 形成 AB-BA 死锁。
     fn tick(&self, app: &AppHandle) {
         let config = self.load_config_cached();
         let reminder_minutes = config.games.games_reminder_minutes.clamp(15, 1440);
-        let mut state = match self.state.lock() {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-        let now = chrono::Local::now();
-        let today = now.format("%Y-%m-%d").to_string();
-        if state.day != today {
-            state.day = today;
-            state.reminders_today = 0;
-            state.today_seconds = 0;
-            state.today_games_loaded_at = None;
-        }
-        if !config.games.games_reminder_enabled {
-            state.streak_seconds = 0;
-            state.streak_started = None;
-            return;
+
+        // 短锁 state：跨日重置 + 读是否启用、今日缓存是否过期。
+        let need_today;
+        {
+            let Ok(mut state) = self.state.lock() else {
+                return;
+            };
+            let now = chrono::Local::now();
+            let today = now.format("%Y-%m-%d").to_string();
+            if state.day != today {
+                state.day = today;
+                state.reminders_today = 0;
+                state.today_seconds = 0;
+                state.today_games_loaded_at = None;
+            }
+            if !config.games.games_reminder_enabled {
+                state.streak_seconds = 0;
+                state.streak_started = None;
+                return;
+            }
+            need_today = state
+                .today_games_loaded_at
+                .map(|t| t.elapsed() >= GAMES_CACHE_TTL)
+                .unwrap_or(true);
         }
 
-        let playing = {
+        // 锁 api 做 DB（与 snapshot 同序）；此段不持 state。
+        let db_result = {
             let Some(app_state) = app.try_state::<AppState>() else {
                 return;
             };
@@ -134,22 +145,29 @@ impl GameTracker {
             };
             let games = self.visible_games_cached(&api.db());
             let is_playing = stats::current_game(&games, &*api.db()).is_some();
-            // 今日总时长一并结算，snapshot 可复用，避免再扫一遍库。
-            if state
-                .today_games_loaded_at
-                .map(|t| t.elapsed() >= GAMES_CACHE_TTL)
-                .unwrap_or(true)
-            {
-                state.today_seconds = stats::game_stats_today(&*api.db(), &games)
-                    .iter()
-                    .map(|s| s.seconds)
-                    .sum();
-                state.today_games_loaded_at = Some(Instant::now());
-            }
-            is_playing
+            let today_seconds = if need_today {
+                Some(
+                    stats::game_stats_today(&*api.db(), &games)
+                        .iter()
+                        .map(|s| s.seconds)
+                        .sum::<i64>(),
+                )
+            } else {
+                None
+            };
+            (is_playing, today_seconds)
         };
+        let (playing, today_seconds) = db_result;
+
+        // 短锁 state 写回结果。
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if let Some(secs) = today_seconds {
+            state.today_seconds = secs;
+            state.today_games_loaded_at = Some(Instant::now());
+        }
         if !playing {
-            // 没在玩游戏：连续计时归零。
             if state.streak_seconds > 0 || state.streak_started.is_some() {
                 state.streak_seconds = 0;
                 state.streak_started = None;

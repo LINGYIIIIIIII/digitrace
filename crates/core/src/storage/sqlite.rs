@@ -158,8 +158,11 @@ fn dec_str(s: String) -> String {
     security::field_decrypt_or_placeholder(s)
 }
 
-/// 把数据库里残留的旧明文敏感字段一次性加密。幂等：只处理无 `dpapi:` 前缀的行。
+/// 把数据库里残留的旧明文敏感字段一次性加密。
+/// 幂等：只处理无 `dpapi:` / `aes:` 前缀的行。
+/// 分批 + 事务：避免大库启动时整表进内存、逐条 autocommit 卡顿。
 fn encrypt_legacy_sensitive_fields(conn: &Connection) -> Result<(), rusqlite::Error> {
+    const BATCH: usize = 500;
     let mut updated: u64 = 0;
     for (table, col) in [
         ("usage_sessions", "app_path"),
@@ -179,13 +182,22 @@ fn encrypt_legacy_sensitive_fields(conn: &Connection) -> Result<(), rusqlite::Er
             .filter_map(|r| r.ok())
             .collect();
         drop(stmt);
-        for (id, plain) in rows {
-            if let Ok(enc) = security::field_encrypt(&plain) {
-                let update_sql = format!("UPDATE {table} SET {col} = ?1 WHERE id = ?2");
-                if conn.execute(&update_sql, params![enc, id]).is_ok() {
-                    updated += 1;
+        if rows.is_empty() {
+            continue;
+        }
+        let update_sql = format!("UPDATE {table} SET {col} = ?1 WHERE id = ?2");
+        for chunk in rows.chunks(BATCH) {
+            let tx = conn.unchecked_transaction()?;
+            let mut n = 0u64;
+            for (id, plain) in chunk {
+                if let Ok(enc) = security::field_encrypt(plain)
+                    && tx.execute(&update_sql, params![enc, id]).is_ok()
+                {
+                    n += 1;
                 }
             }
+            tx.commit()?;
+            updated += n;
         }
     }
     if updated > 0 {
