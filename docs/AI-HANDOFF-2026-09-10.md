@@ -2,7 +2,8 @@
 
 > 本文面向**后续接手的 AI / 开发者**，记录本机一次完整「检查 → 整理 → 固化 → 优化 → 门禁」过程。  
 > 主仓：`C:\Users\chen\Documents\Codex\2026-08-18\digitrace-c-users-chen-documents-codex\work\timetrace-20260818`  
-> 会话结束时：`main` 相对 `origin/main` **ahead 11**，工作树 clean，**未 push、未打 tag**。
+> 2026-09-10：上述整理/优化/文档提交**已 push** 至 `origin/main`（`0994529..c5332d5`）。
+> **尚未打 tag、未发 GitHub Release**（公开最新 tag 仍为 `v2.31.0`）。
 
 ---
 
@@ -152,7 +153,7 @@ git status                               clean
 
 ---
 
-## 4. 本地提交清单（均未 push）
+## 4. 提交清单（已 push 至 origin/main = c5332d5）
 
 ```text
 edb451a docs: 修正 AI-HANDOFF 提交计数
@@ -168,11 +169,10 @@ edb451a docs: 修正 AI-HANDOFF 提交计数
 01dc3af chore: 收口 .gitignore，忽略 outputs 与多 target 缓存
 ```
 
-推送到 GitHub 时：
+**main 已推送。** 发正式版还差：
 
 ```powershell
-git push origin main
-# 确认 CI / 真机后：
+# 确认真机 / CI 后：
 git tag v2.31.3
 git push origin v2.31.3
 ```
@@ -203,7 +203,7 @@ git push origin v2.31.3
 
 ### 发版
 
-- [ ] push main  
+- [x] push main（2026-09-10，`c5332d5`）  
 - [ ] tag `v2.31.3` / push tag  
 - [ ] 核对 GitHub Release 六资产与 notes  
 
@@ -247,9 +247,9 @@ git push origin v2.31.3
 
 | 目标 | 动作 |
 |---|---|
-| 尽快发版 | push → 真机点检 → tag v2.31.3 → 核对 Release |
+| 尽快发版 | ~~push~~ 已完成 → 真机点检 → tag v2.31.3 → 核对 Release |
 | 本机更稳 | 从当前 HEAD 出正式 exe → 改计划任务路径 → 清 blur/verify |
-| 隐私闭环 | 写清加密范围文档；enc 失败可见；watched 稳定键 |
+| 隐私闭环 | 写清加密范围文档；enc 失败 UI；watched 稳定键 |
 
 ---
 
