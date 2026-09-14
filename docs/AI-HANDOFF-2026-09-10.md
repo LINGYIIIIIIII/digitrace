@@ -2,7 +2,7 @@
 
 > 本文面向**后续接手的 AI / 开发者**，记录本机一次完整「检查 → 整理 → 固化 → 优化 → 门禁」过程。  
 > 主仓：`C:\Users\chen\Documents\Codex\2026-08-18\digitrace-c-users-chen-documents-codex\work\timetrace-20260818`  
-> 2026-09-10：上述整理/优化/文档提交**已 push** 至 `origin/main`（`0994529..c5332d5`）。
+> 2026-09-14 复核：`main` = `860346a`，与 origin 同步；最新 CI **全绿**（曾因 clippy 1.98 `chunks-exact-to-as-chunks` 红叉，已修）。
 > **尚未打 tag、未发 GitHub Release**（公开最新 tag 仍为 `v2.31.0`）。
 
 ---
@@ -203,7 +203,7 @@ git push origin v2.31.3
 
 ### 发版
 
-- [x] push main（2026-09-10，`c5332d5`）  
+- [x] push main（2026-09-10；后续又推 `860346a` clippy 修复，CI 绿）  
 - [ ] tag `v2.31.3` / push tag  
 - [ ] 核对 GitHub Release 六资产与 notes  
 
@@ -216,7 +216,7 @@ git push origin v2.31.3
 
 ### 产品 / 隐私
 
-- [ ] 「敏感字段全加密」与库表实际范围的产品口径  
+- [x] ~~「敏感字段全加密」与库表实际范围的产品口径~~ → README「隐私与数据」已写清加密/明文边界  
 - [ ] ~~`enc_str` 失败静默回退明文，无 UI/指标~~ → 已有 `encrypt_fallback_count()`；**UI 展示仍待做**  
 - [ ] `watched_games` 仍按 title 明文，改名会丢关注  
 - [ ] 部分历史版本 Release notes 缺口  
@@ -226,7 +226,7 @@ git push origin v2.31.3
 - [ ] 真机 UI 验收矩阵（深浅主题 × 缩放 × 窄窗 × resize × 托盘）  
 - [ ] e2e 仅 1 个 smoke  
 - [ ] 大文件未再拆（`sqlite.rs` ~1.7k、`SettingsPage.tsx` ~1.3k）  
-- [ ] `metrics.map` 自 8/14 停更，外部共享内存路径未写清  
+- [x] ~~`metrics.map` 路径未写清~~ → 已写入 README「外部接口」；**mtime 不随写入刷新，勿用文件时间判断是否在采集**  
 
 ---
 

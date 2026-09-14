@@ -28,8 +28,21 @@
 ## 隐私与数据
 
 - 所有数据保存在本机 `%APPDATA%\TimeTrace`，不上传任何内容
-- 敏感字段（窗口标题、日记内容）使用 Windows DPAPI 加密存储
+- **加密范围（请按此理解，勿扩大）**：
+  - 整文件 AES：`config.json`、`op.log`、`timetrace.log`（魔数 `dgc1`）
+  - 字段级 AES-256-GCM（主密钥经 Windows DPAPI 用户域保护，见 `key.bin`）：
+    `usage_sessions.app_path/app_name/window_title`、`page_visits.app_name/window_title`、日记正文、部分游戏路径字段
+  - **保持明文**：时长/时间戳/日期/分钟级指标等数字（不具标识性）；`watched_games.title`（关注键需可 SQL 匹配）
+- 密钥绑定当前 Windows 用户；把整个 `TimeTrace` 目录拷到其它用户/机器上，敏感字段将无法解密（设计如此）
 - 可选内核驱动仅在你明确同意后安装，用于读取 CPU 温度
+
+## 外部接口（本机集成）
+
+| 通道 | 说明 |
+| --- | --- |
+| 共享内存 `%APPDATA%\TimeTrace\metrics.map` | 由「当前采集者」（完整版或 `digitrace-monitor`，互斥租约）每秒发布；结构见 `crates/metrics` 与 `metrics.h`。文件 mtime 不保证随写入刷新，判断是否在跑请看进程或 Named Pipe |
+| Named Pipe `\\.\pipe\DigitraceMetricsV1` | `digitrace-monitor` 只读 JSON 快照，一次连接一帧；完整版未运行时也可用 |
+| `monitor.db` | 分钟级硬件/温度/网络历史，完整版与 monitor 共用 |
 
 ## 技术栈
 
