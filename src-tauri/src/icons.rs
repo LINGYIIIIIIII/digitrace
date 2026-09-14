@@ -212,9 +212,9 @@ unsafe fn icon_to_rgba(hicon: *mut std::ffi::c_void) -> Option<(i32, i32, Vec<u8
         // stores the color bitmap as BGRA; preserve its channels as-is and
         // only fall back to the monochrome mask when the alpha channel is
         // unavailable (all zero).
-        let has_alpha = pixels.chunks_exact(4).any(|px| px[3] != 0);
+        let has_alpha = pixels.as_chunks::<4>().0.iter().any(|px| px[3] != 0);
         let mut rgba = Vec::with_capacity(pixels.len());
-        for (index, px) in pixels.chunks_exact(4).enumerate() {
+        for (index, px) in pixels.as_chunks::<4>().0.iter().enumerate() {
             let (b, g, r) = (px[0], px[1], px[2]);
             let a = if has_alpha {
                 px[3]
@@ -326,9 +326,13 @@ mod tests {
                 eprintln!("OK   {:55} -> {}x{}", p, w, h);
                 assert!(w > 0 && h > 0);
                 assert_eq!(rgba.len(), (w * h * 4) as usize);
-                assert!(rgba.chunks_exact(4).any(|pixel| pixel[3] != 0));
+                assert!(rgba.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0));
                 let first = &rgba[..4];
-                assert!(rgba.chunks_exact(4).any(|pixel| pixel != first));
+                assert!(rgba
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|pixel| pixel.as_slice() != first));
                 ok += 1;
             } else {
                 eprintln!("FAIL {:55}", p);
