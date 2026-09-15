@@ -203,9 +203,9 @@ git push origin v2.31.3
 
 ### 发版
 
-- [x] push main（2026-09-10；后续又推 `860346a` clippy 修复，CI 绿）  
-- [ ] tag `v2.31.3` / push tag  
-- [ ] 核对 GitHub Release 六资产与 notes  
+- [x] push main（已多次推送，HEAD 见 git log）
+- [x] tag `v2.31.3` / push tag（2026-09-15，tag 指向 `6e5253d`）
+- [x] 核对 GitHub Release 六资产与 notes（2026-09-15 全绿发布）
 
 ### 本机运行链路
 
