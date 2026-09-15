@@ -1054,7 +1054,14 @@ mod tests {
     // ── WeGame 增强 ──────────────────────────────────────────────
 
     fn make_wegame_tree() -> std::path::PathBuf {
-        let base = std::env::temp_dir().join(format!("tt_wegame_test_{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!(
+            "tt_wegame_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0)
+        ));
         let _ = std::fs::remove_dir_all(&base);
         let game = base.join("games").join("MyRPG");
         std::fs::create_dir_all(&game).unwrap();
@@ -1110,7 +1117,14 @@ mod tests {
 
     #[test]
     fn wegame_apps_layout_scanned() {
-        let base = std::env::temp_dir().join(format!("tt_wegame_apps_{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!(
+            "tt_wegame_apps_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0)
+        ));
         let _ = std::fs::remove_dir_all(&base);
         let apps = base.join("apps");
         let g = apps.join("LolGame");
