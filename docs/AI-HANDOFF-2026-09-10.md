@@ -218,7 +218,8 @@ git push origin v2.31.3
 
 - [x] ~~「敏感字段全加密」与库表实际范围的产品口径~~ → README「隐私与数据」已写清加密/明文边界  
 - [ ] ~~`enc_str` 失败静默回退明文，无 UI/指标~~ → 已有 `encrypt_fallback_count()`；**UI 展示仍待做**  
-- [ ] `watched_games` 仍按 title 明文，改名会丢关注  
+- [x] ~~`watched_games` 仍按 title 明文~~（键设计保留）；**WeGame 扫描已增强**（多根/apps/过滤/主 exe）
+- [x] ~~`encrypt_fallback_count` UI~~ → 关于页 count>0 显示三语警告
 - [ ] 部分历史版本 Release notes 缺口  
 
 ### 工程
