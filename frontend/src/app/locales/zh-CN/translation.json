@@ -505,6 +505,7 @@
     },
     "privacy": "隐私",
     "privacyDescription": "所有数据仅保存在本机 %APPDATA%\\TimeTrace，不上传任何云端。",
+    "encryptFallback": "本次运行中有 {{count}} 次敏感字段加密失败并回退为明文存储，请检查密钥权限或查看运行日志。",
     "credits": "数迹（Digitrace）—— 我们共同开发的独立项目",
     "update": {
       "title": "检查更新",

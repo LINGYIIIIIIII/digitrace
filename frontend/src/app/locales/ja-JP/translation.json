@@ -496,6 +496,7 @@
     },
     "privacy": "プライバシー",
     "privacyDescription": "すべてのデータは %APPDATA%\\TimeTrace にのみ保存され、アップロードはされません。",
+    "encryptFallback": "この実行では機密フィールドの暗号化が {{count}} 回失敗し、平文で保存しました。キー権限またはログを確認してください。",
     "credits": "数迹（Digitrace）—— 私たちが一緒に開発した独立プロジェクト",
     "update": {
       "title": "更新",

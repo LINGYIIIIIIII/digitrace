@@ -387,27 +387,178 @@ fn parse_epic_item(path: &Path) -> Option<FoundGame> {
 }
 
 // ── WeGame ───────────────────────────────────────────────────────
+//
+// 安装形态不唯一：有的在 <root>\games\<Game>\，有的库挂在 <root>\apps\，
+// 注册表键/值名也随版本变化。因此改为「收集全部候选根 → 各扫一层 →
+// 按 exe 路径去重」，不再第一个命中就返回。
 
-pub fn scan_wegame_games() -> Vec<FoundGame> {
-    let Some(root) = wegame_root() else {
-        return Vec::new();
+/// WeGame 下明显不是游戏的一级目录名（全小写，contains 匹配）。
+const WEGAME_NON_GAME_DIRS: &[&str] = &[
+    "crashreport",
+    "crash_report",
+    "crash",
+    "uninstall",
+    "unins",
+    "download",
+    "downloading",
+    "cache",
+    "temp",
+    "tmp",
+    "logs",
+    "log",
+    "update",
+    "updater",
+    "redist",
+    "directx",
+    "vcredist",
+    "common",
+    "launcher",
+    "browser",
+    "cef",
+    "webview",
+];
+
+/// 在 WeGame 游戏目录里挑一个主 exe：
+/// 1. 优先 exe stem 与目录名互相包含（小写）；
+/// 2. 否则跳过 NON_GAME_EXES 后取第一个（scan_exes 已过滤）。
+fn pick_wegame_exe(dir: &Path, title: &str) -> Option<PathBuf> {
+    let exes = scan_exes(dir, 0);
+    if exes.is_empty() {
+        return None;
+    }
+    let title_lc = title.to_lowercase();
+    for exe in &exes {
+        let stem = exe
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if !stem.is_empty() && (stem.contains(&title_lc) || title_lc.contains(&stem)) {
+            return Some(exe.clone());
+        }
+    }
+    Some(exes[0].clone())
+}
+
+/// 目录名是否像非游戏（crashreport / uninstall / download 等）。
+fn is_wegame_non_game_dir(name: &str) -> bool {
+    let n = name.to_lowercase();
+    WEGAME_NON_GAME_DIRS.iter().any(|d| n.contains(d))
+}
+
+/// 收集全部可能的 WeGame 安装根（去重，不短路返回）。
+fn wegame_roots() -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    let push_unique = |p: PathBuf, roots: &mut Vec<PathBuf>| {
+        if p.as_os_str().is_empty() {
+            return;
+        }
+        if !roots.iter().any(|r| r == &p) {
+            roots.push(p);
+        }
     };
-    let games_dir = root.join("games");
-    let Ok(entries) = std::fs::read_dir(&games_dir) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    for entry in entries.flatten() {
-        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+
+    // 1) 注册表：HKLM/HKCU 多键多值，全部收集。
+    {
+        use winreg::RegKey;
+        use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+        for (hive, sub) in [
+            (HKEY_LOCAL_MACHINE, "SOFTWARE\\WOW6432Node\\Tencent\\WeGame"),
+            (HKEY_LOCAL_MACHINE, "SOFTWARE\\Tencent\\WeGame"),
+            (
+                HKEY_LOCAL_MACHINE,
+                "SOFTWARE\\WOW6432Node\\Tencent\\WeGameLauncher",
+            ),
+            (HKEY_LOCAL_MACHINE, "SOFTWARE\\Tencent\\WeGameLauncher"),
+            (HKEY_CURRENT_USER, "Software\\Tencent\\WeGame"),
+            (HKEY_CURRENT_USER, "Software\\Tencent\\WeGameLauncher"),
+        ] {
+            if let Ok(key) = RegKey::predef(hive).open_subkey(sub) {
+                for val in [
+                    "InstallPath",
+                    "InstallDir",
+                    "install_path",
+                    "Path",
+                    "InstallRoot",
+                    "RootPath",
+                ] {
+                    if let Ok(p) = key.get_value::<String, _>(val)
+                        && !p.is_empty()
+                    {
+                        push_unique(PathBuf::from(p), &mut roots);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2) 默认路径 + 常见变体（Tencent\WeGame、WeGame\apps）。
+    for c in [
+        "C:\\Program Files\\WeGame",
+        "C:\\Program Files (x86)\\WeGame",
+        "C:\\Program Files\\Tencent\\WeGame",
+        "C:\\Program Files (x86)\\Tencent\\WeGame",
+    ] {
+        push_unique(PathBuf::from(c), &mut roots);
+        push_unique(PathBuf::from(c).join("apps"), &mut roots);
+    }
+
+    // 3) 各盘符下 Program Files\WeGame。
+    for drive in ["C:\\", "D:\\", "E:\\", "F:\\", "G:\\"] {
+        if !Path::new(drive).exists() {
             continue;
         }
-        let dir = entry.path();
-        let title = entry.file_name().to_string_lossy().into_owned();
-        // 每个 WeGame 游戏目录只取一个主 exe，避免把目录里 helper/wallpaper 等
-        // 额外 exe 全部塞进游戏库造成重复/无关条目。
-        if let Some(exe) = scan_exes(&dir, 0).into_iter().next() {
+        push_unique(
+            PathBuf::from(drive).join("Program Files").join("WeGame"),
+            &mut roots,
+        );
+        push_unique(
+            PathBuf::from(drive)
+                .join("Program Files (x86)")
+                .join("WeGame"),
+            &mut roots,
+        );
+        push_unique(
+            PathBuf::from(drive).join("Tencent").join("WeGame"),
+            &mut roots,
+        );
+    }
+
+    roots
+}
+
+/// 扫描单个 WeGame 根：优先 root\games\*，若根文件名为 apps 再扫根一级。
+fn scan_wegame_under(root: &Path) -> Vec<FoundGame> {
+    let mut out = Vec::new();
+    let games_dir = root.join("games");
+    let mut scanned: Vec<PathBuf> = Vec::new();
+    if games_dir.is_dir() {
+        scanned.push(games_dir);
+    }
+    let is_apps = root
+        .file_name()
+        .map(|n| n.to_string_lossy().eq_ignore_ascii_case("apps"))
+        .unwrap_or(false);
+    if is_apps {
+        scanned.push(root.to_path_buf());
+    }
+    for base in scanned {
+        let Ok(entries) = std::fs::read_dir(&base) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let title = entry.file_name().to_string_lossy().into_owned();
+            if is_wegame_non_game_dir(&title) {
+                continue;
+            }
+            let dir = entry.path();
+            let Some(exe) = pick_wegame_exe(&dir, &title) else {
+                continue;
+            };
             out.push(FoundGame {
-                title: title.clone(),
+                title,
                 exe_path: exe.to_string_lossy().into_owned(),
                 app_name: crate::games::exe_stem(&exe.to_string_lossy()).to_string(),
                 source: "wegame",
@@ -418,40 +569,19 @@ pub fn scan_wegame_games() -> Vec<FoundGame> {
     out
 }
 
-fn wegame_root() -> Option<PathBuf> {
-    use winreg::RegKey;
-    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
-    for (hive, sub) in [
-        (HKEY_LOCAL_MACHINE, "SOFTWARE\\WOW6432Node\\Tencent\\WeGame"),
-        (HKEY_LOCAL_MACHINE, "SOFTWARE\\Tencent\\WeGame"),
-        (HKEY_CURRENT_USER, "Software\\Tencent\\WeGame"),
-    ] {
-        if let Ok(key) = RegKey::predef(hive).open_subkey(sub) {
-            for val in [
-                "InstallPath",
-                "InstallDir",
-                "install_path",
-                "Path",
-                "InstallRoot",
-            ] {
-                if let Ok(p) = key.get_value::<String, _>(val)
-                    && !p.is_empty()
-                {
-                    return Some(PathBuf::from(p));
-                }
+/// 扫描全部 WeGame 候选根，按 exe 路径去重后返回。
+pub fn scan_wegame_games() -> Vec<FoundGame> {
+    let mut out: Vec<FoundGame> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for root in wegame_roots() {
+        for g in scan_wegame_under(&root) {
+            let key = normalize_path(&g.exe_path);
+            if seen.insert(key) {
+                out.push(g);
             }
         }
     }
-    for c in [
-        "C:\\Program Files\\WeGame",
-        "C:\\Program Files (x86)\\WeGame",
-    ] {
-        let p = PathBuf::from(c);
-        if p.join("games").exists() {
-            return Some(p);
-        }
-    }
-    None
+    out
 }
 
 // ── 米哈游（磁盘目录扫描 + 注册表兜底）──────────────────────────────────
@@ -919,5 +1049,77 @@ mod tests {
             .collect();
         assert_eq!(names, vec!["Game".to_string()], "应只保留游戏主 exe");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── WeGame 增强 ──────────────────────────────────────────────
+
+    fn make_wegame_tree() -> std::path::PathBuf {
+        let base = std::env::temp_dir().join(format!("tt_wegame_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let game = base.join("games").join("MyRPG");
+        std::fs::create_dir_all(&game).unwrap();
+        std::fs::write(game.join("MyRPG.exe"), b"mz").unwrap();
+        std::fs::write(game.join("helper.exe"), b"mz").unwrap();
+        let junk = base.join("games").join("Download");
+        std::fs::create_dir_all(&junk).unwrap();
+        std::fs::write(junk.join("dl.exe"), b"mz").unwrap();
+        let other = base.join("games").join("SomeTitle");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("zzz_launcher.exe"), b"mz").unwrap();
+        std::fs::write(other.join("real_game.exe"), b"mz").unwrap();
+        base
+    }
+
+    #[test]
+    fn wegame_pick_exe_prefers_name_match() {
+        let base = make_wegame_tree();
+        let dir = base.join("games").join("MyRPG");
+        let exe = pick_wegame_exe(&dir, "MyRPG").expect("应找到主 exe");
+        assert!(
+            exe.to_string_lossy().to_lowercase().contains("myrpg"),
+            "got {:?}",
+            exe
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn wegame_filters_non_game_dirs() {
+        let base = make_wegame_tree();
+        let found = scan_wegame_under(&base);
+        let titles: Vec<_> = found.iter().map(|g| g.title.as_str()).collect();
+        assert!(titles.contains(&"MyRPG"), "got {:?}", titles);
+        assert!(
+            !titles.iter().any(|t| t.eq_ignore_ascii_case("Download")),
+            "got {:?}",
+            titles
+        );
+        assert!(found.iter().all(|g| g.source == "wegame"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn wegame_roots_returns_vec_no_panic() {
+        let roots = wegame_roots();
+        assert!(
+            roots
+                .iter()
+                .any(|p| p.to_string_lossy().to_lowercase().contains("wegame"))
+        );
+    }
+
+    #[test]
+    fn wegame_apps_layout_scanned() {
+        let base = std::env::temp_dir().join(format!("tt_wegame_apps_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let apps = base.join("apps");
+        let g = apps.join("LolGame");
+        std::fs::create_dir_all(&g).unwrap();
+        std::fs::write(g.join("LolGame.exe"), b"mz").unwrap();
+        let found = scan_wegame_under(&apps);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].source, "wegame");
+        assert_eq!(found[0].title, "LolGame");
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

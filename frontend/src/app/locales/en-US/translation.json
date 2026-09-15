@@ -496,6 +496,7 @@
     },
     "privacy": "Privacy",
     "privacyDescription": "All data stays on this device at %APPDATA%\\TimeTrace. Nothing is uploaded.",
+    "encryptFallback": "Sensitive field encryption failed {{count}} time(s) this run and fell back to plaintext. Check key permissions or the app log.",
     "credits": "Digitrace — an independent project we built together",
     "update": {
       "title": "Updates",

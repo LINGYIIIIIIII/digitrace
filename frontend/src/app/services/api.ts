@@ -317,6 +317,10 @@ class ApiService {
     return invoke<string>('get_log_path');
   }
 
+  async getEncryptFallbackCount(): Promise<number> {
+    return invoke<number>('get_encrypt_fallback_count');
+  }
+
   async clearData(): Promise<void> {
     return invoke('clear_data');
   }

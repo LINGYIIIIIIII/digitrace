@@ -232,6 +232,7 @@ fn main() {
             api::get_app_hourly,
             api::clear_data,
             api::export_csv,
+            api::get_encrypt_fallback_count,
             api::restart_app,
             api::mark_ui_ready,
             games::get_game_snapshot,

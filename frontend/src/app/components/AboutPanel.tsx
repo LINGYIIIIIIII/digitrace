@@ -1,6 +1,6 @@
 'use client';
 
-import { Heart, ShieldCheck, Sparkles } from 'lucide-react';
+import { Heart, ShieldAlert, ShieldCheck, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getVersion } from '@tauri-apps/api/app';
@@ -14,10 +14,15 @@ import { UpdateCheckCard } from './UpdateCheckCard';
 export default function AboutPanel() {
   const { t } = useTranslation();
   const [version, setVersion] = useState('');
+  const [encryptFallbacks, setEncryptFallbacks] = useState(0);
 
   useEffect(() => {
     getVersion()
       .then(setVersion)
+      .catch(() => {});
+    apiService
+      .getEncryptFallbackCount()
+      .then(setEncryptFallbacks)
       .catch(() => {});
   }, []);
 
@@ -81,6 +86,14 @@ export default function AboutPanel() {
             <h3 className="text-sm font-semibold">{t('about.privacy')}</h3>
           </div>
           <p className="text-sm leading-relaxed text-muted-foreground">{t('about.privacyDescription')}</p>
+          {encryptFallbacks > 0 && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
+              <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <p>
+                {t('about.encryptFallback', { count: encryptFallbacks })}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

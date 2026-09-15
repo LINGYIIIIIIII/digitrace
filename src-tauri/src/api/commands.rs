@@ -224,6 +224,13 @@ pub fn export_csv(state: State<'_, AppState>, start: String, end: String) -> Str
     lock(&state).export_csv(start, end)
 }
 
+/// 敏感字段加密失败回退明文的累计次数（进程内）。
+/// 用于「关于」页：>0 时提示隐私降级，避免完全静默。
+#[tauri::command]
+pub fn get_encrypt_fallback_count() -> u64 {
+    timetrace_core::encrypt_fallback_count()
+}
+
 /// 重启应用（窗口材质等配置重启后生效）。
 /// 实现：先启动一个独立延迟重启器（1 秒后拉起新实例），再干净退出当前进程，
 /// 确保单实例锁与窗口资源先释放，避免新实例被旧实例拦截。
