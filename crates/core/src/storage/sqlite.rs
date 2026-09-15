@@ -2,6 +2,8 @@
 //!
 //! Uses `rusqlite` with bundled SQLite. All errors are logged via `tracing::warn!`
 //! and operations return sensible defaults — the trait contract says infallible.
+//!
+//! 模块拆分：字段加解密见 `field_enc`，打开时迁移见 `migrate`，DDL 见 `schema`。
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -14,56 +16,16 @@ use crate::contracts::{
     AppMetaRecord, AppUsageSplit, AppUsageSummary, DataStore, GameRow, SessionRecord,
     StartupEntryRecord,
 };
-use crate::security;
+use crate::storage::field_enc::{dec_str, enc_opt, enc_str};
+use crate::storage::migrate;
 use crate::storage::schema;
 
+pub use crate::storage::field_enc::encrypt_fallback_count;
+
 /// Apply guarded one-time migrations. Returns Err only on real failures.
+/// 结构补齐 + 敏感字段加密 + user_version 对齐，逻辑在 `migrate` 模块。
 fn run_migrations(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
-    // Migration 1: diary_entries.date was UNIQUE (one entry/day) in old DBs.
-    // Rebuild the table without the constraint so multiple entries per day
-    // are allowed, preserving all existing rows.
-    let has_unique: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM pragma_index_list('diary_entries') WHERE \"unique\" = 1 AND origin = 'u'",
-        [],
-        |row| row.get(0),
-    )?;
-    if has_unique > 0 {
-        for stmt in schema::MIGRATIONS {
-            conn.execute_batch(stmt)?;
-        }
-        tracing::info!("diary_entries migrated: multi-entry per day");
-    }
-
-    // Migration 2: diary_images.entry_id — add column if missing + backfill.
-    let has_entry_col: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('diary_images') WHERE name = 'entry_id'",
-        [],
-        |row| row.get(0),
-    )?;
-    if has_entry_col == 0 {
-        for stmt in schema::MIGRATIONS_V2 {
-            conn.execute_batch(stmt)?;
-        }
-        tracing::info!("diary_images migrated: entry_id linked");
-    }
-    // Always ensure the entry index exists (fresh DBs + migrated).
-    conn.execute_batch(
-        "CREATE INDEX IF NOT EXISTS idx_diary_images_entry ON diary_images(entry_id)",
-    )?;
-
-    // Migration 3: diary_entries.status — add column if missing.
-    let has_status: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('diary_entries') WHERE name = 'status'",
-        [],
-        |row| row.get(0),
-    )?;
-    if has_status == 0 {
-        for stmt in schema::MIGRATIONS_V3 {
-            conn.execute_batch(stmt)?;
-        }
-        tracing::info!("diary_entries migrated: status column");
-    }
-    Ok(())
+    migrate::run_on_open(conn)
 }
 
 /// Split a session [start, end) across hour-of-day buckets (local time).
@@ -119,10 +81,8 @@ impl SqliteStore {
         // 清理异常遗留的未关闭会话（进程被强杀/崩溃产生），避免统计虚增。
         let _ = conn.execute("DELETE FROM usage_sessions WHERE duration_secs IS NULL", []);
 
-        // 敏感字段（窗口标题 / 日记内容）DPAPI 加密迁移（幂等，只处理旧明文）。
-        if let Err(e) = encrypt_legacy_sensitive_fields(&conn) {
-            warn!("敏感字段加密迁移失败：{e}");
-        }
+        // 结构迁移 + 敏感字段加密 + user_version（见 migrate.rs）。
+        run_migrations(&conn)?;
 
         debug!("SQLite opened at {}", path.display());
 
@@ -139,90 +99,6 @@ impl SqliteStore {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
-}
-
-// ── 敏感字段加解密辅助（DPAPI，见 security.rs）──
-
-/// 加密失败回退明文的累计次数（可观测：隐私降级不应完全静默）。
-static ENCRYPT_FALLBACKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-/// 进程内敏感字段加密失败回退明文次数。
-pub fn encrypt_fallback_count() -> u64 {
-    ENCRYPT_FALLBACKS.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-fn enc_str(s: &str) -> String {
-    security::field_encrypt(s).unwrap_or_else(|e| {
-        ENCRYPT_FALLBACKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        warn!("敏感字段加密失败，回退明文存储：{e}");
-        s.to_string()
-    })
-}
-
-fn enc_opt(s: Option<&str>) -> Option<String> {
-    s.map(enc_str)
-}
-
-fn dec_str(s: String) -> String {
-    security::field_decrypt_or_placeholder(s)
-}
-
-/// 把数据库里残留的旧明文敏感字段一次性加密。
-/// 幂等：只处理无 `dpapi:` / `aes:` 前缀的行。
-/// id 游标分页 + 500 条事务：避免大库启动时整表进内存、逐条 autocommit 卡顿。
-fn encrypt_legacy_sensitive_fields(conn: &Connection) -> Result<(), rusqlite::Error> {
-    const BATCH: usize = 500;
-    let mut updated: u64 = 0;
-    for (table, col) in [
-        ("usage_sessions", "app_path"),
-        ("usage_sessions", "app_name"),
-        ("usage_sessions", "window_title"),
-        ("page_visits", "app_name"),
-        ("page_visits", "window_title"),
-        ("diary_entries", "content"),
-    ] {
-        let select_sql = format!(
-            "SELECT id, {col} FROM {table}
-             WHERE id > ?2 AND {col} IS NOT NULL AND {col} != ''
-               AND {col} NOT LIKE 'dpapi:%' AND {col} NOT LIKE 'aes:%'
-             ORDER BY id LIMIT ?1"
-        );
-        let update_sql = format!("UPDATE {table} SET {col} = ?1 WHERE id = ?2");
-        let mut cursor: i64 = 0;
-        loop {
-            let mut stmt = conn.prepare(&select_sql)?;
-            let rows: Vec<(i64, String)> = stmt
-                .query_map(params![BATCH as i64, cursor], |row| {
-                    Ok((row.get(0)?, row.get(1)?))
-                })?
-                .filter_map(|r| r.ok())
-                .collect();
-            drop(stmt);
-            if rows.is_empty() {
-                break;
-            }
-            let tx = conn.unchecked_transaction()?;
-            let mut n = 0u64;
-            for (id, plain) in &rows {
-                if let Ok(enc) = security::field_encrypt(plain)
-                    && tx.execute(&update_sql, params![enc, id]).is_ok()
-                {
-                    n += 1;
-                }
-            }
-            tx.commit()?;
-            updated += n;
-            cursor = rows.last().map(|(id, _)| *id).unwrap_or(cursor);
-            if rows.len() < BATCH || n == 0 {
-                // 取不满一页说明到底；整批加密失败则密钥异常，停止空转。
-                break;
-            }
-        }
-    }
-    if updated > 0 {
-        tracing::info!("敏感字段加密迁移完成：共 {updated} 条");
-    }
-    Ok(())
 }
 
 impl DataStore for SqliteStore {
