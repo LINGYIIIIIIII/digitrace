@@ -285,11 +285,15 @@ impl AppConfig {
                     None => bytes,
                 };
                 let text = String::from_utf8_lossy(&bytes).into_owned();
-                // 一次性清理历史 DeepSeek 字段（不留痕迹）。
-                if let Some(cleaned) = Self::purge_deepseek_fields(&text) {
-                    let _ = Self::write_encrypted(&path, cleaned.as_bytes());
-                }
-                serde_json::from_str(&text).unwrap_or_else(|e| {
+                // 一次性清理历史 DeepSeek 字段（不留痕迹），并**用清理后文本解析**。
+                let parse_text = match Self::purge_deepseek_fields(&text) {
+                    Some(cleaned) => {
+                        let _ = Self::write_encrypted(&path, cleaned.as_bytes());
+                        cleaned
+                    }
+                    None => text,
+                };
+                serde_json::from_str(&parse_text).unwrap_or_else(|e| {
                     warn!("Failed to parse config, using defaults: {e}");
                     Self::default()
                 })

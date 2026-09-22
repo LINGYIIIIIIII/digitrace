@@ -411,23 +411,40 @@ impl DataStore for SqliteStore {
     fn upsert_startup_entries(&self, entries: &[StartupEntryRecord]) {
         let conn = self.lock();
         for entry in entries {
-            let _ = conn.execute(
-                "INSERT INTO startup_entries (name, command, source, enabled, backup_value, backup_path, first_seen, last_checked)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-                 ON CONFLICT(id) DO UPDATE SET
-                    command = excluded.command,
-                    last_checked = excluded.last_checked",
-                params![
-                    entry.name,
-                    entry.command,
-                    entry.source,
-                    entry.enabled as i32,
-                    entry.backup_value,
-                    entry.backup_path,
-                    entry.first_seen.to_rfc3339(),
-                    entry.last_checked.to_rfc3339(),
-                ],
-            );
+            // 真实 upsert：按 (name, source) 更新；无行再插入。
+            // 不能用 ON CONFLICT(id)——INSERT 未带 id，冲突永远不会发生。
+            let updated = conn
+                .execute(
+                    "UPDATE startup_entries
+                     SET command = ?1, enabled = ?2, backup_value = ?3, backup_path = ?4, last_checked = ?5
+                     WHERE name = ?6 AND source = ?7",
+                    params![
+                        entry.command,
+                        entry.enabled as i32,
+                        entry.backup_value,
+                        entry.backup_path,
+                        entry.last_checked.to_rfc3339(),
+                        entry.name,
+                        entry.source,
+                    ],
+                )
+                .unwrap_or(0);
+            if updated == 0 {
+                let _ = conn.execute(
+                    "INSERT INTO startup_entries (name, command, source, enabled, backup_value, backup_path, first_seen, last_checked)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        entry.name,
+                        entry.command,
+                        entry.source,
+                        entry.enabled as i32,
+                        entry.backup_value,
+                        entry.backup_path,
+                        entry.first_seen.to_rfc3339(),
+                        entry.last_checked.to_rfc3339(),
+                    ],
+                );
+            }
         }
     }
 
@@ -738,12 +755,22 @@ impl DataStore for SqliteStore {
     fn set_diary(&self, date: NaiveDate, content: &str) -> String {
         let conn = self.lock();
         let now = Utc::now().to_rfc3339();
-        let _ = conn.execute(
-            "INSERT INTO diary_entries (date, content, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?3)
-             ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
-            params![date.to_string(), enc_str(content), now],
-        );
+        // 按日 upsert：更新该日最新一条 published；没有则插入。
+        // 不能 ON CONFLICT(id)——INSERT 未指定 id，冲突不会发生（曾导致只插不更）。
+        let updated = conn
+            .execute(
+                "UPDATE diary_entries SET content = ?1, updated_at = ?2
+                 WHERE id = (SELECT id FROM diary_entries WHERE date = ?3 AND status = 'published' ORDER BY id DESC LIMIT 1)",
+                params![enc_str(content), now, date.to_string()],
+            )
+            .unwrap_or(0);
+        if updated == 0 {
+            let _ = conn.execute(
+                "INSERT INTO diary_entries (date, content, created_at, updated_at, status)
+                 VALUES (?1, ?2, ?3, ?3, 'published')",
+                params![date.to_string(), enc_str(content), now],
+            );
+        }
         content.to_string()
     }
 
@@ -1796,6 +1823,25 @@ mod sqlite_tests {
         let split = store.get_usage_split(today, today);
         assert_eq!(split.len(), 1);
         assert_eq!(split[0].app_name, "edge");
+    }
+
+    #[test]
+    fn set_diary_upserts_same_day_published() {
+        let store = temp_store();
+        let today = chrono::Local::now().date_naive();
+        store.set_diary(today, "第一版");
+        store.set_diary(today, "第二版");
+        let entries = store.get_diary_entries_detailed(today, today);
+        let published: Vec<_> = entries.iter().filter(|e| e.3 == "published").collect();
+        assert_eq!(
+            published.len(),
+            1,
+            "set_diary 应按日 upsert，got {entries:?}"
+        );
+        assert!(
+            published[0].2.contains("第二版") || store.get_diary(today).unwrap().contains("第二版")
+        );
+        assert!(store.get_diary(today).is_some());
     }
 
     #[test]

@@ -106,17 +106,33 @@ fn parse_shortcut_exes(bytes: &[u8]) -> Vec<String> {
 }
 
 /// 把一个启动 exe 路径映射成 FoundGame：exe 文件名 stem 命中已知游戏才返回。
+/// 匹配收紧：短 key（<5 字符）只允许全等或「key + 非字母数字后缀」，
+/// 避免 `contains("cf")` 误伤 cloudflared 等。
+fn game_key_matches(stem: &str, key: &str) -> bool {
+    if stem == key {
+        return true;
+    }
+    if key.len() >= 5 {
+        return stem.contains(key);
+    }
+    // 短 key：仅允许 key 作完整前缀 token（后接 _ / - 或结束），避免 contains 误伤。
+    match stem.strip_prefix(key) {
+        Some(rest) => rest.is_empty() || rest.starts_with('_') || rest.starts_with('-'),
+        None => false,
+    }
+}
+
 fn shortcut_to_game(exe: &str) -> Option<FoundGame> {
     let stem = crate::games::exe_stem(exe).to_lowercase();
     // 优先米哈游（用 MIHOYO_EXE_TITLES 映射可读中文名），再走通用 KNOWN_GAMES。
     let title = MIHOYO_EXE_TITLES
         .iter()
-        .find(|(k, _)| stem.contains(k))
+        .find(|(k, _)| game_key_matches(&stem, k))
         .map(|(_, t)| (*t).to_string())
         .or_else(|| {
             crate::games::KNOWN_GAMES
                 .iter()
-                .find(|(k, _)| stem.contains(k))
+                .find(|(k, _)| game_key_matches(&stem, k))
                 .map(|(_, t)| (*t).to_string())
         })?;
     Some(FoundGame {
@@ -903,6 +919,16 @@ mod tests {
         assert_eq!(g2.title, "崩坏：星穹铁道");
         // 无关 exe 不应命中
         assert!(shortcut_to_game(r"C:\Tools\random_tool.exe").is_none());
+    }
+
+    #[test]
+    fn game_key_short_requires_boundary() {
+        assert!(game_key_matches("dnf", "dnf"));
+        assert!(game_key_matches("dnf_win64", "dnf"));
+        assert!(!game_key_matches("cloudflared", "cf"));
+        assert!(!game_key_matches("office", "cf"));
+        assert!(game_key_matches("crossfire", "crossfire"));
+        assert!(game_key_matches("eldenring64", "eldenring"));
     }
 
     #[test]

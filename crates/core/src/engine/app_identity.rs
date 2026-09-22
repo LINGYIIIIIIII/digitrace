@@ -56,15 +56,17 @@ pub fn display_name_for(exe_path: &str, title: &str) -> String {
 }
 
 /// 窗口标题关键词识别（适用于通用运行时 + UWP 宿主）。
+/// 用整词/稳定前缀，避免 `contains` 误伤（如 MEDIA 含 idea）。
 pub fn app_name_from_title(title: &str) -> Option<String> {
     let t = title.to_lowercase();
-    if t.contains("minecraft") || t.contains(" mc") || t.starts_with("mc ") {
+    if t.contains("minecraft") || t.starts_with("mc ") || t.contains(" mc ") {
         return Some("Minecraft".into());
     }
-    if t.contains("intellij") || t.contains("idea") {
+    // IDEA：只认 IntelliJ 语境或独立「idea」词，避免 MEDIA / IDEAS
+    if t.contains("intellij") || t.contains("idea ") || t.ends_with("idea") || t == "idea" {
         return Some("IntelliJ IDEA".into());
     }
-    if t.contains("visual studio code") {
+    if t.contains("visual studio code") || t.contains("vscode") {
         return Some("VS Code".into());
     }
     if t.contains("visual studio") {
@@ -80,6 +82,7 @@ pub fn app_name_from_title(title: &str) -> Option<String> {
 }
 
 /// 已知进程变体合并为统一显示名（写库与查询两侧共用，保证匹配一致）。
+/// 匹配尽量用全等或稳定子串，禁止 `contains("lol")` 这类短 key 误伤。
 pub fn normalize_app_name(name: &str) -> String {
     let lower = name.to_lowercase();
     if lower.contains("msedge") || lower.contains("webview2") {
@@ -88,33 +91,81 @@ pub fn normalize_app_name(name: &str) -> String {
     if lower == "browser" || lower.contains("qbblink") {
         return "WeGame浏览器".into();
     }
-    if lower.contains("leagueclient")
+    // 英雄联盟：客户端/进程名全等或明确前缀，不用短 contains
+    if lower == "leagueclient"
+        || lower == "leagueclient.exe"
+        || lower == "lol"
+        || lower == "lol.exe"
         || lower.contains("league of legends")
-        || lower.contains("lol")
+        || lower.starts_with("leagueclient")
     {
         return "英雄联盟".into();
     }
     // 系统组件统一归「系统」
-    if lower.contains("startmenu")
+    if lower == "startmenuexperiencehost"
+        || lower == "startmenuhost"
         || lower.contains("shellhost")
         || lower.contains("searchhost")
-        || lower.contains("lockapp")
+        || lower == "lockapp"
+        || lower == "lockapp.exe"
         || lower.contains("applicationframehost")
         || lower.contains("shellexperiencehost")
         || lower.contains("runtimebroker")
         || lower.contains("textinputhost")
-        || lower.contains("dwm")
+        || lower == "dwm"
+        || lower == "dwm.exe"
     {
         return "系统".into();
     }
     if lower == "code" || lower == "code.exe" {
         return "VS Code".into();
     }
-    if lower.contains("explorer") {
+    // 资源管理器：全等 exe/stem，避免「browseexplorer」等误并
+    if lower == "explorer" || lower == "explorer.exe" {
         return "资源管理器".into();
     }
-    if lower.contains("terminal") {
+    // 终端：WindowsTerminal / wt / Terminal
+    if lower == "windowsterminal"
+        || lower == "windowsterminal.exe"
+        || lower == "wt"
+        || lower == "wt.exe"
+        || lower == "terminal"
+        || lower == "terminal.exe"
+    {
         return "终端".into();
     }
     name.into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_lol_does_not_match_colossal_or_yellow() {
+        assert_eq!(normalize_app_name("Colossal"), "Colossal");
+        assert_eq!(normalize_app_name("Yellow"), "Yellow");
+        assert_eq!(normalize_app_name("follow"), "follow");
+        assert_eq!(normalize_app_name("leagueclient"), "英雄联盟");
+        assert_eq!(normalize_app_name("League of Legends"), "英雄联盟");
+        assert_eq!(normalize_app_name("LOL"), "英雄联盟");
+    }
+
+    #[test]
+    fn normalize_system_and_terminal_precise() {
+        assert_eq!(normalize_app_name("explorer"), "资源管理器");
+        assert_eq!(normalize_app_name("browseexplorer"), "browseexplorer");
+        assert_eq!(normalize_app_name("WindowsTerminal"), "终端");
+        assert_eq!(normalize_app_name("Terminator"), "Terminator");
+        assert_eq!(normalize_app_name("dwm"), "系统");
+        assert_eq!(normalize_app_name("downloader"), "downloader");
+    }
+
+    #[test]
+    fn title_idea_not_media() {
+        assert!(app_name_from_title("IntelliJ IDEA - project").is_some());
+        assert!(app_name_from_title("MEDIA Player").is_none());
+        assert!(app_name_from_title("IDEAS board").is_none());
+        assert!(app_name_from_title("My IDEA").is_some());
+    }
 }

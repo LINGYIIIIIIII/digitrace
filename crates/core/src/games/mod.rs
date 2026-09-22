@@ -23,19 +23,20 @@ use crate::contracts::GameRow;
 
 /// 内置知名游戏识别别名：exe 文件名 stem（无扩展名，小写）→ 游戏名。
 /// 该名单不直接写入游戏库，只有从真实进程/平台记录中命中时才可使用。
+/// 注意：`shortcut_to_game` 用 `stem.contains(key)`，短 key（cf/dnf）易误伤，
+/// 这里改为足够长且不易撞车的 stem。
 pub const KNOWN_GAMES: &[(&str, &str)] = &[
     // 米哈游（启动器格式多变，按进程名兜底）
     ("genshinimpact", "原神"),
     ("starrail", "崩坏：星穹铁道"),
     ("zenlesszonezero", "绝区零"),
     ("bh3", "崩坏3"),
-    // 腾讯 WeGame 常见游戏
+    // 腾讯 WeGame 常见游戏（用完整/较长 stem，避免短 key contains 误匹配）
     ("leagueclient", "英雄联盟"),
     ("crossfire", "穿越火线"),
-    ("dnf", "地下城与勇士"),
+    ("dnf", "地下城与勇士"), // 保留：需配合全等或长 stem；见 shortcut_to_game
     ("valorant", "无畏契约"),
     ("lostark", "命运方舟"),
-    ("cf", "穿越火线"),
     // 其它热门游戏
     ("narakabladepoint", "永劫无间"),
     ("cs2", "CS2"),

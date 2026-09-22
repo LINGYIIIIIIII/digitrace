@@ -127,7 +127,7 @@ fn run_command() -> Result<String, String> {
 /// 值内容是否与本应用相关（避免误删其它软件的 Run 项）。
 fn is_related_command(cmd: &str) -> bool {
     let lower = cmd.to_lowercase();
-    lower.contains("timetrace") || lower.contains("数迹")
+    lower.contains("timetrace") || lower.contains("digitrace") || lower.contains("数迹")
 }
 
 /// 启动时自愈自启记录：

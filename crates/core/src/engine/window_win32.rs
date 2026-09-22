@@ -56,8 +56,11 @@ impl WindowResolver for Win32WindowResolver {
         }
     }
 
-    fn get_window_title(&self, _hwnd: isize) -> Option<String> {
-        None
+    fn get_window_title(&self, hwnd: isize) -> Option<String> {
+        if hwnd == 0 {
+            return None;
+        }
+        unsafe { get_window_title_text(HWND(hwnd as *mut core::ffi::c_void)) }
     }
 }
 
