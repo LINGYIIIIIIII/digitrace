@@ -59,7 +59,8 @@ pub fn display_name_for(exe_path: &str, title: &str) -> String {
 /// 用整词/稳定前缀，避免 `contains` 误伤（如 MEDIA 含 idea）。
 pub fn app_name_from_title(title: &str) -> Option<String> {
     let t = title.to_lowercase();
-    if t.contains("minecraft") || t.starts_with("mc ") || t.contains(" mc ") {
+    // 不用裸 "mc" 子串（AMC 等会误伤）
+    if t.contains("minecraft") || t.starts_with("mc - ") || t.starts_with("mc—") {
         return Some("Minecraft".into());
     }
     // IDEA：只认 IntelliJ 语境或独立「idea」词，避免 MEDIA / IDEAS
@@ -167,5 +168,8 @@ mod tests {
         assert!(app_name_from_title("MEDIA Player").is_none());
         assert!(app_name_from_title("IDEAS board").is_none());
         assert!(app_name_from_title("My IDEA").is_some());
+        // Minecraft 收紧后：AMC 不再误判
+        assert!(app_name_from_title("AMC News").is_none());
+        assert!(app_name_from_title("Minecraft 1.20").is_some());
     }
 }

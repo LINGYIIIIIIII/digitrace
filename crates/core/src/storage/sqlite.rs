@@ -396,13 +396,12 @@ impl DataStore for SqliteStore {
             |row| row.get::<_, String>(0),
         ) && let Ok(start) = DateTime::parse_from_rfc3339(&started_str)
         {
-            let dur = (end_time - start.with_timezone(&Utc)).num_seconds();
-            if dur > 0 {
-                let _ = conn.execute(
-                    "UPDATE page_visits SET ended_at = ?1, duration_secs = ?2 WHERE id = ?3",
-                    params![end_time.to_rfc3339(), dur, visit_id],
-                );
-            }
+            // 零时长也写 ended_at，避免悬空 page（ended_at IS NULL 被当成未关闭）。
+            let dur = (end_time - start.with_timezone(&Utc)).num_seconds().max(0);
+            let _ = conn.execute(
+                "UPDATE page_visits SET ended_at = ?1, duration_secs = ?2 WHERE id = ?3",
+                params![end_time.to_rfc3339(), dur, visit_id],
+            );
         }
     }
 
