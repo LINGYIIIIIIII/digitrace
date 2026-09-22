@@ -153,7 +153,18 @@ git status                               clean
 
 ---
 
-## 4. 提交清单（已 push 至 origin/main = c5332d5）
+## 4. 提交清单（已 push 至 origin/main = e91664e）
+
+截至 **e91664e** 的关键提交（完整台账见会话「数迹-总规划与执行台账.md」）：
+
+```text
+e91664e refactor: oplog 测试隔离、decrypt_placeholder_count、拆 MemoryStore、health 降频、流式 SHA-256
+e1be6fb fix: 审查 P0 B1–B8（识别误匹配、假 upsert、get_window_title 等）
+2c6c94d refactor: schema user_version + migrate/field_enc 拆分
+cca3a43 feat: WeGame 扫描增强 + 关于页加密回退提示
+860346a fix: clippy 1.98 chunks-exact-to-as-chunks
+…更早见 git log（2.31.x 固化 / 工程化 / 卫生）
+```
 
 ```text
 edb451a docs: 修正 AI-HANDOFF 提交计数
@@ -206,6 +217,8 @@ git push origin v2.31.3
 - [x] push main（已多次推送，HEAD 见 git log）
 - [x] tag `v2.31.3` / push tag（2026-09-15，tag 指向 `6e5253d`）
 - [x] 核对 GitHub Release 六资产与 notes（2026-09-15 全绿发布）
+- [x] 审查 P0 B1–B8 修复（e1be6fb）
+- [x] P1/P2：oplog 隔离、MemoryStore 拆分、health 降频、流式哈希、decrypt_placeholder_count（e91664e）
 
 ### 本机运行链路
 
