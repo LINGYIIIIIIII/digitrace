@@ -16,6 +16,8 @@ use timetrace_core::{AppConfig, IdleDetector, Win32IdleDetector};
 const TICK_SECONDS: u64 = 5;
 /// 连续时长恢复窗口：距上次保存 ≤90 秒（覆盖更新确认+重启）就接着计时，否则重新计时。
 const RESUME_WINDOW_SECS: u64 = 90;
+/// 状态落盘最短间隔（tick 每 5s 一次，避免频繁小文件 IO）。
+const PERSIST_MIN_INTERVAL_SECS: u64 = 30;
 const STATE_FILE: &str = "health_state.json";
 
 #[derive(Debug, Clone, Serialize)]
@@ -43,6 +45,8 @@ struct HealthState {
     last_reminder_local: Option<String>,
     last_break_local: Option<String>,
     day: String,
+    /// 上次 persist 时刻（降频：tick 不必每次写盘）。
+    last_persist: Option<Instant>,
 }
 
 /// 健康提醒运行状态的持久化快照（更新/重启后恢复，短间隔接着计时）。
@@ -126,6 +130,17 @@ fn persist(state: &HealthState) {
     save_persist_to(&state_path(), state);
 }
 
+/// 限频持久化：距上次写盘不足 `PERSIST_MIN_INTERVAL_SECS` 则跳过。
+fn persist_throttled(state: &mut HealthState) {
+    if let Some(at) = state.last_persist {
+        if at.elapsed().as_secs() < PERSIST_MIN_INTERVAL_SECS {
+            return;
+        }
+    }
+    persist(state);
+    state.last_persist = Some(Instant::now());
+}
+
 pub struct HealthTracker {
     state: Arc<Mutex<HealthState>>,
 }
@@ -163,12 +178,13 @@ impl HealthTracker {
             state.day = today;
             state.reminders_today = 0;
             persist(&state);
+            state.last_persist = Some(Instant::now());
         }
 
         if !config.health.health_reminder_enabled {
             state.streak_seconds = 0;
             state.streak_started = None;
-            persist(&state);
+            persist_throttled(&mut state);
             return;
         }
 
@@ -179,7 +195,7 @@ impl HealthTracker {
             }
             state.streak_seconds = 0;
             state.streak_started = None;
-            persist(&state);
+            persist_throttled(&mut state);
             return;
         }
 
@@ -206,18 +222,21 @@ impl HealthTracker {
                 state.streak_seconds = 0;
                 state.streak_started = Some(Instant::now());
                 persist(&state);
+                state.last_persist = Some(Instant::now());
             }
             return;
         } else if state.streak_started.is_none() {
             state.streak_started = Some(Instant::now());
         }
-        persist(&state);
+        // 常规 tick：限频落盘（约 30s 一次），避免每 5s 写小文件。
+        persist_throttled(&mut state);
     }
 
     /// 立即保存当前状态（应用退出前兜底，避免最后几秒的数据丢失）。
     pub fn persist_now(&self) {
-        if let Ok(state) = self.state.lock() {
+        if let Ok(mut state) = self.state.lock() {
             persist(&state);
+            state.last_persist = Some(Instant::now());
         }
     }
 
@@ -423,6 +442,7 @@ mod tests {
             last_break_local: Some("12:00".to_string()),
             streak_seconds: 120,
             streak_started: None,
+            last_persist: None,
         };
         save_persist_to(&path, &state);
         let loaded = load_persist_from(&path).unwrap();

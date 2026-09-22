@@ -273,9 +273,19 @@ fn fetch_sha256_asset(rel: &GhRelease) -> Result<String, String> {
 }
 
 fn sha256_file(path: &Path) -> Result<String, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("读取更新包失败：{e}"))?;
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|e| format!("读取更新包失败：{e}"))?;
     let mut hasher = Sha256::new();
-    hasher.update(&bytes);
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| format!("读取更新包失败：{e}"))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
     Ok(hex(&hasher.finalize()))
 }
 

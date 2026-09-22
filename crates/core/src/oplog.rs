@@ -235,11 +235,23 @@ impl Write for EncryptedLogWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// 测试互斥：全局 OP_LOG 单例被测试临时改写路径时禁止并行。
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn encrypted_tail_and_clear_roundtrip() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let old_path = instance().lock().unwrap().path.clone();
-        let tmp = std::env::temp_dir().join("tt_oplog_enc_test.log");
+        let tmp = std::env::temp_dir().join(format!(
+            "tt_oplog_enc_test_{}_{}.log",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
         let _ = std::fs::remove_file(&tmp);
         *instance().lock().unwrap() = OpLog { path: tmp.clone() };
         log_event("TEST", "hello");
